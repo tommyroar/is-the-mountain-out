@@ -2,202 +2,75 @@
 library_name: peft
 tags:
 - lora
+- vision
+- weather
+- dual-input
+- convnext
 ---
 
-# Model Card for Model ID
+# Mount Rainier "Out" Detector
 
-<!-- Provide a quick summary of what the model is/does. -->
-
-
+This model implements an iterative image classification system to determine if Mount Rainier is "out" (visible) based on live webcam streams and real-time weather data.
 
 ## Model Details
 
 ### Model Description
 
-<!-- Provide a longer summary of what this model is. -->
+- **Developed by:** tommyroar
+- **Model type:** Vision-Backbone with Dual-Input Linear Head
+- **Finetuned from model:** `convnext_tiny` (via `timm`)
+- **PEFT Method:** LoRA (Low-Rank Adaptation)
+- **Primary Input:** 224x224 RGB Image (Webcam capture)
+- **Secondary Input:** 2D METAR Weather Vector (Normalized visibility and ceiling)
 
-
-
-- **Developed by:** [More Information Needed]
-- **Funded by [optional]:** [More Information Needed]
-- **Shared by [optional]:** [More Information Needed]
-- **Model type:** [More Information Needed]
-- **Language(s) (NLP):** [More Information Needed]
-- **License:** [More Information Needed]
-- **Finetuned from model [optional]:** [More Information Needed]
-
-### Model Sources [optional]
-
-<!-- Provide the basic links for the model. -->
-
-- **Repository:** [More Information Needed]
-- **Paper [optional]:** [More Information Needed]
-- **Demo [optional]:** [More Information Needed]
+### Model Architecture
+The model uses a pre-trained ConvNeXt-Tiny backbone for feature extraction (768-dim features). These features are concatenated with a 2-dim weather vector (visibility, ceiling) and passed through a custom classification head:
+1. `Linear(768 + 2, 256)`
+2. `ReLU`
+3. `Dropout(0.1)`
+4. `Linear(256, 2)` (Binary classification: Not Out / Out)
 
 ## Uses
 
-<!-- Address questions around how the model is intended to be used, including the foreseeable users of the model and those affected by the model. -->
-
 ### Direct Use
-
-<!-- This section is for the model use without fine-tuning or plugging into a larger ecosystem/app. -->
-
-[More Information Needed]
-
-### Downstream Use [optional]
-
-<!-- This section is for the model use when fine-tuned for a task, or when plugged into a larger ecosystem/app -->
-
-[More Information Needed]
+The model is designed for real-time monitoring of Mount Rainier visibility from various regional webcams (e.g., UW Red Square, Paradise Mountain).
 
 ### Out-of-Scope Use
-
-<!-- This section addresses misuse, malicious use, and uses that the model will not work well for. -->
-
-[More Information Needed]
-
-## Bias, Risks, and Limitations
-
-<!-- This section is meant to convey both technical and sociotechnical limitations. -->
-
-[More Information Needed]
-
-### Recommendations
-
-<!-- This section is meant to convey recommendations with respect to the bias, risk, and technical limitations. -->
-
-Users (both direct and downstream) should be made aware of the risks, biases and limitations of the model. More information needed for further recommendations.
-
-## How to Get Started with the Model
-
-Use the code below to get started with the model.
-
-[More Information Needed]
+This model should not be used for safety-critical navigation or aviation decisions. It is purely for informational and recreational purposes.
 
 ## Training Details
 
 ### Training Data
-
-<!-- This should link to a Dataset Card, perhaps with a short stub of information on what the training data is all about as well as documentation related to data pre-processing or additional filtering. -->
-
-[More Information Needed]
+The model is trained iteratively using live captures from regional webcams and normalized METAR data from KSEA.
 
 ### Training Procedure
-
-<!-- This relates heavily to the Technical Specifications. Content here should link to that section when it is relevant to the training procedure. -->
-
-#### Preprocessing [optional]
-
-[More Information Needed]
-
-
-#### Training Hyperparameters
-
-- **Training regime:** [More Information Needed] <!--fp32, fp16 mixed precision, bf16 mixed precision, bf16 non-mixed precision, fp16 non-mixed precision, fp8 mixed precision -->
-
-#### Speeds, Sizes, Times [optional]
-
-<!-- This section provides information about throughput, start/end time, checkpoint size if relevant, etc. -->
-
-[More Information Needed]
+- **Optimizer:** Adam (LR=1e-3)
+- **Hardware:** Apple Silicon (MPS - Metal Performance Shaders)
+- **Technique:** Iterative Online Learning with Gradient Accumulation (default steps: 4)
+- **Zero-Disk Policy:** Live training frames are converted directly to tensors and moved to GPU memory without intermediate storage.
 
 ## Evaluation
 
-<!-- This section describes the evaluation protocols and provides the results. -->
+### Target Benchmarks
+- **Accuracy:** > 95%
+- **Precision:** > 98% (High priority on minimizing false positives)
+- **Loss:** < 0.10
+- **F1-Score:** > 0.92
 
-### Testing Data, Factors & Metrics
-
-#### Testing Data
-
-<!-- This should link to a Dataset Card if possible. -->
-
-[More Information Needed]
-
-#### Factors
-
-<!-- These are the things the evaluation is disaggregating by, e.g., subpopulations or domains. -->
-
-[More Information Needed]
-
-#### Metrics
-
-<!-- These are the evaluation metrics being used, ideally with a description of why. -->
-
-[More Information Needed]
-
-### Results
-
-[More Information Needed]
-
-#### Summary
-
-
-
-## Model Examination [optional]
-
-<!-- Relevant interpretability work for the model goes here -->
-
-[More Information Needed]
-
-## Environmental Impact
-
-<!-- Total emissions (in grams of CO2eq) and additional considerations, such as electricity usage, go here. Edit the suggested text below accordingly -->
-
-Carbon emissions can be estimated using the [Machine Learning Impact calculator](https://mlco2.github.io/impact#compute) presented in [Lacoste et al. (2019)](https://arxiv.org/abs/1910.09700).
-
-- **Hardware Type:** [More Information Needed]
-- **Hours used:** [More Information Needed]
-- **Cloud Provider:** [More Information Needed]
-- **Compute Region:** [More Information Needed]
-- **Carbon Emitted:** [More Information Needed]
-
-## Technical Specifications [optional]
-
-### Model Architecture and Objective
-
-[More Information Needed]
+## Technical Specifications
 
 ### Compute Infrastructure
+- **Hardware:** Apple Silicon (M1/M2/M3)
+- **Software:** PyTorch with MPS backend, PEFT, TIMM
 
-[More Information Needed]
+## How to Get Started
+The model is managed via the `mountain-trainer` project CLI:
+```bash
+# Load checkpoints and run a single live training cycle
+uv run training once
+```
 
-#### Hardware
-
-[More Information Needed]
-
-#### Software
-
-[More Information Needed]
-
-## Citation [optional]
-
-<!-- If there is a paper or blog post introducing the model, the APA and Bibtex information for that should go in this section. -->
-
-**BibTeX:**
-
-[More Information Needed]
-
-**APA:**
-
-[More Information Needed]
-
-## Glossary [optional]
-
-<!-- If relevant, include terms and calculations in this section that can help readers understand the model or model card. -->
-
-[More Information Needed]
-
-## More Information [optional]
-
-[More Information Needed]
-
-## Model Card Authors [optional]
-
-[More Information Needed]
-
-## Model Card Contact
-
-[More Information Needed]
 ### Framework versions
-
 - PEFT 0.18.1
+- torch 2.10.0
+- timm 1.0.24
