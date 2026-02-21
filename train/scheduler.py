@@ -213,8 +213,7 @@ def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
     <array>
         <string>{executable}</string>
         <string>run</string>
-        <string>python</string>
-        <string>{current_dir / "scheduler.py"}</string>
+        <string>training</string>
         <string>once</string>
         <string>--config</string>
         <string>{current_dir / config}</string>
