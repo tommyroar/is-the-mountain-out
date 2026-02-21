@@ -25,20 +25,20 @@ This system performs online learning using Parameter-Efficient Fine-Tuning (PEFT
 All commands should be run from the `/train` directory:
 ```bash
 # Start a continuous live training loop with gradient accumulation
-uv run python scheduler.py live
+uv run training live
 
 # Single training cycle from live cameras (captures all webcams and trains once)
-uv run python scheduler.py once
+uv run training once
 
 # Single capture of all webcams and METAR data to /data (git-ignored)
-uv run python collector.py collect
+uv run collect
 
 # Batch train on a local folder with /images and /metar subfolders
-uv run python scheduler.py batch --folder /path/to/data
+uv run training batch --folder /path/to/data
 
 # Manage background training service via launchctl (periodic execution of 'once')
-uv run python scheduler.py schedule   # Install and load
-uv run python scheduler.py unschedule # Unload and remove
+uv run training schedule   # Install and load
+uv run training unschedule # Unload and remove
 ```
 
 ### Command Details

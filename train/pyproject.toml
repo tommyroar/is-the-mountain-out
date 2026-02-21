@@ -22,6 +22,9 @@ dependencies = [
 training = "scheduler:app"
 collect = "collector:app"
 
+[tool.setuptools]
+py-modules = ["config_loader", "collector", "model", "utils", "scheduler", "main"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 
