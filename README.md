@@ -25,14 +25,15 @@ To start the iterative training loop on Apple Silicon:
    # Batch train on local folder with /images and /metar
    cd train && uv run training batch --folder /path/to/data
 
-   # Continuous training on configured schedule
-   cd train && uv run training schedule
+   # Continuous training via Homebrew Service
+   brew install --formula ./mountain-trainer.rb
+   brew services start mountain-trainer
    ```
 
 ### Commands
 - **live**: Collects the latest webcam images and METAR and runs the training loop once.
 - **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
-- **schedule**: Launches the training loop as a persistent service on the configured schedule.
+- **Homebrew Service**: Managed via `brew services`, it runs the `live` command on a periodic interval.
 
 ## Design
 This project implements a real-time image classification system that fine-tunes a `convnext_tiny` model using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The training occurs iteratively as frames are captured from multiple webcams and processed in small batches.
