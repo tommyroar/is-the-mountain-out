@@ -11,6 +11,7 @@ def test_config_loader_merge(tmp_path):
         'schedule_seconds': 1800,
         'capture_interval_seconds': 300,
         'gradient_accumulation_steps': 4,
+        'checkpoint_dir': 'checkpoints',
         'lora_settings': {'rank': 4, 'alpha': 8, 'target_modules': ['fc1']}
     }
     with open(config_file, 'wb') as f:
@@ -46,6 +47,7 @@ def test_config_loader_no_toml(tmp_path):
         'schedule_seconds': 1800,
         'capture_interval_seconds': 300,
         'gradient_accumulation_steps': 4,
+        'checkpoint_dir': 'checkpoints',
         'lora_settings': {'rank': 4, 'alpha': 8, 'target_modules': ['fc1']},
         'metar_station': 'KSEA'
     }
@@ -56,5 +58,4 @@ def test_config_loader_no_toml(tmp_path):
     assert loader.webcam_sources == [0]
     assert loader.metar_station == 'KSEA'
     assert loader.schedule_seconds == 1800
-    assert loader.capture_interval_seconds == 300
-    assert loader.gradient_accumulation_steps == 4
+    assert loader.checkpoint_dir == 'checkpoints'

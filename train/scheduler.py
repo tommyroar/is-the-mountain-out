@@ -27,13 +27,16 @@ class Trainer:
             target_modules=self.config_loader.lora_settings['target_modules'],
             device=self.device
         )
+        
+        # Attempt to load checkpoint
+        self.model_wrapper.load_checkpoint(self.config_loader.checkpoint_dir)
+        
         self.optimizer = optim.Adam(self.model_wrapper.model.parameters(), lr=0.001)
         self.weather_fetcher = WeatherFetcher(self.config_loader.metar_station)
 
     def run_single_cycle(self, label: int = 1):
         """
-        Performs a single capture cycle from all sources and a training step.
-        Used for single-shot execution (e.g., via launchctl StartInterval).
+        Performs a single capture cycle and a training step, then saves.
         """
         print(f"[{datetime.now()}] Starting single training cycle...")
         weather_vector = self.weather_fetcher.get_weather_vector()
@@ -63,12 +66,15 @@ class Trainer:
             
             loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
             print(f"[{datetime.now()}] Cycle Complete: Loss = {loss:.4f}")
+            
+            # Persist learning
+            self.model_wrapper.save_checkpoint(self.config_loader.checkpoint_dir)
         else:
             print(f"[{datetime.now()}] Cycle skipped: No frames captured.")
 
     def live_training_loop(self, label: int = 1):
         """
-        Continuously captures frames and performs batch training using gradient accumulation.
+        Continuously captures frames and performs batch training with persistence.
         """
         print(f"[{datetime.now()}] Starting continuous live training loop...")
         
@@ -106,6 +112,10 @@ class Trainer:
                         
                         loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
                         print(f"[{datetime.now()}] Batch Training Complete: Loss = {loss:.4f}")
+                        
+                        # Persist learning
+                        self.model_wrapper.save_checkpoint(self.config_loader.checkpoint_dir)
+                        
                         image_list, weather_list, label_list = [], [], []
                 
                 time.sleep(self.config_loader.capture_interval_seconds)
@@ -191,6 +201,9 @@ def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: st
             torch.stack(label_list), trainer.optimizer
         )
         print(f"Final batch: Loss = {loss:.4f}")
+    
+    # Save after batch training
+    trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
 
 @app.command()
 def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
@@ -224,8 +237,7 @@ def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
     <integer>{config_loader.schedule_seconds}</integer>
     <key>StandardErrorPath</key>
     <string>/tmp/mountain_trainer.err</string>
-    <key>StandardOutPath</key>
-    <string>/tmp/mountain_trainer.out</string>
+    <key>StandardOutPath</key>    <string>/tmp/mountain_trainer.out</string>
     <key>WorkingDirectory</key>
     <string>{current_dir}</string>
 </dict>

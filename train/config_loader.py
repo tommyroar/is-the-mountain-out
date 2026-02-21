@@ -43,6 +43,10 @@ class ConfigLoader:
         return self.config['gradient_accumulation_steps']
 
     @property
+    def checkpoint_dir(self) -> str:
+        return self.config['checkpoint_dir']
+
+    @property
     def lora_settings(self) -> Dict[str, Any]:
         return self.config['lora_settings']
 
