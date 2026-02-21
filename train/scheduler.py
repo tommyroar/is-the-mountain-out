@@ -38,34 +38,23 @@ class Trainer:
         print(f"[{datetime.now()}] Starting single training cycle...")
         weather_vector = self.weather_fetcher.get_weather_vector()
         
-        image_list = []
-        weather_list = []
-        label_list = []
-        
-        for source in self.config_loader.webcam_sources:
-            stream = WebcamStream(source, device=self.device)
-            try:
-                tensor = stream.capture_to_tensor()
-                if tensor is not None:
-                    image_list.append(tensor.squeeze(0))
-                    weather_list.append(weather_vector)
-                    label_list.append(torch.tensor(label))
-                    print(f"  Source {source}: Captured.")
-                else:
-                    print(f"  Source {source}: Capture failed.")
-            finally:
-                stream.release()
-        
-        if image_list:
-            image_batch = torch.stack(image_list)
-            weather_batch = torch.stack(weather_list)
-            label_batch = torch.stack(label_list)
-            
-            loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
-            print(f"[{datetime.now()}] Cycle Complete: Loss = {loss:.4f}")
-            self.model_wrapper.save_checkpoint(self.config_loader.checkpoint_dir)
-        else:
-            print(f"[{datetime.now()}] Cycle skipped: No frames captured.")
+        source = self.config_loader.webcam_url
+        stream = WebcamStream(source, device=self.device)
+        try:
+            tensor = stream.capture_to_tensor()
+            if tensor is not None:
+                # Still use batch format even for single image
+                image_batch = tensor
+                weather_batch = weather_vector.unsqueeze(0)
+                label_batch = torch.tensor([label]).to(self.device)
+                
+                loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
+                print(f"[{datetime.now()}] Cycle Complete: Loss = {loss:.4f}")
+                self.model_wrapper.save_checkpoint(self.config_loader.checkpoint_dir)
+            else:
+                print(f"  Source {source}: Capture failed.")
+        finally:
+            stream.release()
 
     def live_training_loop(self, label: int = 1):
         print(f"[{datetime.now()}] Starting continuous live training loop...")
@@ -73,26 +62,25 @@ class Trainer:
         weather_list = []
         label_list = []
         
+        source = self.config_loader.webcam_url
         try:
             while True:
                 weather_vector = self.weather_fetcher.get_weather_vector()
-                cycle_captured = False
-                for source in self.config_loader.webcam_sources:
-                    stream = WebcamStream(source, device=self.device)
-                    try:
-                        tensor = stream.capture_to_tensor()
-                        if tensor is not None:
-                            image_list.append(tensor.squeeze(0))
-                            weather_list.append(weather_vector)
-                            label_list.append(torch.tensor(label))
-                            cycle_captured = True
-                        else:
-                            print(f"  Source {source}: Capture failed.")
-                    finally:
-                        stream.release()
+                stream = WebcamStream(source, device=self.device)
+                try:
+                    tensor = stream.capture_to_tensor()
+                    if tensor is not None:
+                        image_list.append(tensor.squeeze(0))
+                        weather_list.append(weather_vector)
+                        label_list.append(torch.tensor(label))
+                        print(f"  Captured from {source}")
+                    else:
+                        print(f"  Source {source}: Capture failed.")
+                finally:
+                    stream.release()
                 
-                if cycle_captured:
-                    current_accum = len(image_list) // len(self.config_loader.webcam_sources)
+                if image_list:
+                    current_accum = len(image_list)
                     print(f"  Accumulation step {current_accum}/{self.config_loader.gradient_accumulation_steps}")
                     
                     if current_accum >= self.config_loader.gradient_accumulation_steps:

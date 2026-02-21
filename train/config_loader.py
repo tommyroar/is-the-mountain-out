@@ -17,18 +17,19 @@ class ConfigLoader:
 
     def _validate_config(self):
         # Basic config validation
-        required_keys = ['schedule_seconds', 'lora_settings', 'capture_interval_seconds', 'gradient_accumulation_steps']
+        required_keys = ['schedule_seconds', 'lora_settings', 'capture_interval_seconds', 'gradient_accumulation_steps', 'checkpoint_dir']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"Missing required config key: {key}")
 
     @property
-    def webcam_sources(self) -> List[Any]:
-        # Merge sources from main config and target mountain TOML
+    def webcam_url(self) -> str:
+        # Prefer webcam from mountain TOML if available
+        if 'webcam' in self.target_data and 'url' in self.target_data['webcam']:
+            return self.target_data['webcam']['url']
+        # Fallback to first source in main config if it exists (legacy support)
         sources = self.config.get('webcam_sources', [])
-        if 'webcams' in self.target_data:
-            sources.extend([cam['url'] for cam in self.target_data['webcams']])
-        return list(set(sources)) # Unique sources
+        return sources[0] if sources else ""
 
     @property
     def schedule_seconds(self) -> int:
@@ -47,10 +48,14 @@ class ConfigLoader:
         return self.config['lora_settings']
 
     @property
+    def checkpoint_dir(self) -> str:
+        return self.config['checkpoint_dir']
+
+    @property
     def metar_station(self) -> str:
         # Prefer station from mountain TOML if available
-        if 'weather' in self.target_data and 'primary_metar' in self.target_data['weather']:
-            return self.target_data['weather']['primary_metar']
+        if 'weather' in self.target_data and 'station_id' in self.target_data['weather']:
+            return self.target_data['weather']['station_id']
         return self.config.get('metar_station', 'KSEA')
 
     @property

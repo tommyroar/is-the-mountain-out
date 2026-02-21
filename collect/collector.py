@@ -13,7 +13,7 @@ app = typer.Typer()
 @app.command()
 def collect(config: str = "train/config.toml", mountain: str = "mountain.toml", data_root: str = "data"):
     """
-    Runs a single capture of each webcam and METAR data, saving them into a datestamped directory.
+    Runs a single capture of the configured webcam and METAR data, saving them into a datestamped directory.
     """
     config_loader = ConfigLoader(config, mountain)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
@@ -30,7 +30,7 @@ def collect(config: str = "train/config.toml", mountain: str = "mountain.toml", 
     
     print(f"[{now}] Starting collection into {collection_dir}...")
     
-    # Fetch METAR once for this cycle
+    # Fetch METAR
     metar_text = weather_fetcher.fetch_latest_metar()
     if metar_text:
         with open(metar_dir / "metar.txt", "w") as f:
@@ -39,21 +39,25 @@ def collect(config: str = "train/config.toml", mountain: str = "mountain.toml", 
     else:
         print("  Warning: METAR capture failed.")
     
-    # Capture from each source
-    for idx, source in enumerate(config_loader.webcam_sources):
-        stream = WebcamStream(source)
-        try:
-            frame = stream.capture_raw()
-            if frame is not None:
-                # Sanitize filename if source is a URL
-                safe_name = str(source).replace("/", "_").replace(":", "_").replace(".", "_")
-                filename = f"cam_{idx}_{safe_name}.jpg"
-                cv2.imwrite(str(image_dir / filename), frame)
-                print(f"  Source {source}: Saved as {filename}")
-            else:
-                print(f"  Source {source}: Capture failed.")
-        finally:
-            stream.release()
+    # Capture from the single source
+    source = config_loader.webcam_url
+    if not source:
+        print("Error: No webcam source configured.")
+        raise typer.Exit(code=1)
+        
+    stream = WebcamStream(source)
+    try:
+        frame = stream.capture_raw()
+        if frame is not None:
+            # Sanitize filename
+            safe_name = str(source).replace("/", "_").replace(":", "_").replace(".", "_")
+            filename = f"capture_{safe_name}.jpg"
+            cv2.imwrite(str(image_dir / filename), frame)
+            print(f"  Source {source}: Saved as {filename}")
+        else:
+            print(f"  Source {source}: Capture failed.")
+    finally:
+        stream.release()
             
     print(f"[{datetime.now()}] Collection complete.")
 
