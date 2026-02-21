@@ -27,16 +27,27 @@ All commands should be run from the `/train` directory:
 # Start a continuous live training loop with gradient accumulation
 uv run python scheduler.py live
 
+# Single training cycle from live cameras (captures all webcams and trains once)
+uv run python scheduler.py once
+
 # Single capture of all webcams and METAR data to /data (git-ignored)
 uv run python collector.py collect
 
 # Batch train on a local folder with /images and /metar subfolders
 uv run python scheduler.py batch --folder /path/to/data
 
-# Manage background training service via launchctl
+# Manage background training service via launchctl (periodic execution of 'once')
 uv run python scheduler.py schedule   # Install and load
 uv run python scheduler.py unschedule # Unload and remove
 ```
+
+### Command Details
+- **live**: Runs a continuous loop. It uses **gradient accumulation** in-memory to perform a training step after a configurable number of captures.
+- **once**: Performs a single capture of configured webcams and METAR data, runs a single training step on that batch, and then exits.
+- **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
+- **collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
+- **schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `schedule_seconds`) to run the `once` command.
+- **unschedule**: Unloads and removes the `launchctl` service.
 
 ## Technical Strategy
 - **Backbone:** `convnext_tiny` via `timm`.
