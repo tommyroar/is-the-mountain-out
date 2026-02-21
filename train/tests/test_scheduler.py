@@ -2,17 +2,18 @@ import pytest
 import torch
 import torch.optim as optim
 from unittest.mock import MagicMock, patch
-from scheduler import Trainer
+from train.scheduler import Trainer
 
-@patch('scheduler.ConfigLoader')
-@patch('scheduler.ConvNextLoRAModel')
-@patch('scheduler.WeatherFetcher')
+@patch('train.scheduler.ConfigLoader')
+@patch('train.scheduler.ConvNextLoRAModel')
+@patch('train.scheduler.WeatherFetcher')
 def test_trainer_initialization(mock_weather, mock_model_cls, mock_config):
     """Verify that the trainer initializes correctly."""
     mock_config.return_value.metar_station = 'KSEA'
     mock_config.return_value.lora_settings = {
         'rank': 8, 'alpha': 16, 'target_modules': ['fc1']
     }
+    mock_config.return_value.checkpoint_dir = 'checkpoints'
     
     mock_model = MagicMock()
     mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
@@ -23,18 +24,19 @@ def test_trainer_initialization(mock_weather, mock_model_cls, mock_config):
     assert mock_model_cls.called
     assert mock_weather.called
 
-@patch('scheduler.WebcamStream')
-@patch('scheduler.WeatherFetcher')
+@patch('train.scheduler.WebcamStream')
+@patch('train.scheduler.WeatherFetcher')
 def test_run_single_cycle_execution(mock_weather_cls, mock_webcam):
     """Verify that run_single_cycle captures multiple frames and performs a training step."""
-    with patch('scheduler.ConfigLoader') as mock_config:
+    with patch('train.scheduler.ConfigLoader') as mock_config:
         mock_config.return_value.webcam_sources = [0, 1]
         mock_config.return_value.metar_station = 'KSEA'
         mock_config.return_value.lora_settings = {
             'rank': 8, 'alpha': 16, 'target_modules': ['fc1']
         }
+        mock_config.return_value.checkpoint_dir = 'checkpoints'
         
-        with patch('scheduler.ConvNextLoRAModel') as mock_model_cls:
+        with patch('train.scheduler.ConvNextLoRAModel') as mock_model_cls:
             mock_model = MagicMock()
             mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
             mock_model.train_step.return_value = 0.5
@@ -62,12 +64,12 @@ def test_run_single_cycle_execution(mock_weather_cls, mock_webcam):
             assert weather_batch.shape == (2, 2)
             assert label_batch.shape == (2,)
 
-@patch('scheduler.WebcamStream')
-@patch('scheduler.WeatherFetcher')
+@patch('train.scheduler.WebcamStream')
+@patch('train.scheduler.WeatherFetcher')
 @patch('time.sleep', side_effect=InterruptedError) 
 def test_live_training_loop_cycle(mock_sleep, mock_weather_cls, mock_webcam):
     """Verify that live_training_loop captures multiple frames and performs a batch training step."""
-    with patch('scheduler.ConfigLoader') as mock_config:
+    with patch('train.scheduler.ConfigLoader') as mock_config:
         mock_config.return_value.webcam_sources = [0, 1]
         mock_config.return_value.metar_station = 'KSEA'
         mock_config.return_value.lora_settings = {
@@ -75,8 +77,9 @@ def test_live_training_loop_cycle(mock_sleep, mock_weather_cls, mock_webcam):
         }
         mock_config.return_value.capture_interval_seconds = 0
         mock_config.return_value.gradient_accumulation_steps = 1
+        mock_config.return_value.checkpoint_dir = 'checkpoints'
         
-        with patch('scheduler.ConvNextLoRAModel') as mock_model_cls:
+        with patch('train.scheduler.ConvNextLoRAModel') as mock_model_cls:
             mock_model = MagicMock()
             mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
             mock_model.train_step.return_value = 0.5

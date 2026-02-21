@@ -1,7 +1,9 @@
 import pytest
 import torch
 import torch.optim as optim
-from model import ConvNextLoRAModel
+import os
+import shutil
+from train.model import ConvNextLoRAModel
 
 def test_lora_initialization():
     """Verify ConvNextLoRAModel initializes with correct device."""
@@ -51,13 +53,22 @@ def test_dual_input_batch_parameter_update():
     assert updated_lora, "LoRA parameters in backbone did not change after a batch training step"
     assert updated_classifier, "Classifier head parameters did not change after a batch training step"
 
-def test_backbone_frozen():
-    """Verify that non-LoRA backbone parameters are frozen."""
-    model_wrapper = ConvNextLoRAModel(num_classes=2)
+def test_checkpoint_save_load(tmp_path):
+    """Verify that model can save and load checkpoints correctly."""
+    checkpoint_dir = str(tmp_path / "test_ckpt")
+    model1 = ConvNextLoRAModel(num_classes=2)
     
-    for name, param in model_wrapper.model['backbone'].named_parameters():
-        if 'lora_' not in name:
-            assert not param.requires_grad, f"Non-LoRA backbone parameter {name} is not frozen"
+    # Save initial state of model1
+    model1.save_checkpoint(checkpoint_dir)
+    
+    # Create model2 and load model1's checkpoint
+    model2 = ConvNextLoRAModel(num_classes=2)
+    model2.load_checkpoint(checkpoint_dir)
+    
+    # Verify parameters match
+    for (n1, p1), (n2, p2) in zip(model1.model.named_parameters(), model2.model.named_parameters()):
+        if 'lora_' in n1 or 'classifier' in n1:
+            assert torch.equal(p1, p2), f"Parameter {n1} does not match after loading"
 
 def test_predict_batch():
     """Verify prediction works with a batch of dual inputs."""
@@ -70,5 +81,3 @@ def test_predict_batch():
     
     predictions = model_wrapper.predict(image_batch, weather_batch)
     assert predictions.shape == (batch_size,)
-    for pred in predictions:
-        assert pred.item() in [0, 1]

@@ -1,7 +1,7 @@
 import pytest
 import tomli_w
 import os
-from config_loader import ConfigLoader
+from train.config_loader import ConfigLoader
 
 def test_config_loader_merge(tmp_path):
     # Main TOML config

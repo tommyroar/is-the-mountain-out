@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import cv2
 from unittest.mock import MagicMock, patch
-from utils import WebcamStream
+from train.utils import WebcamStream
 
 def test_mps_availability():
     """Verify code identifies if MPS is available or defaults to CPU."""
