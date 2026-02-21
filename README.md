@@ -19,8 +19,20 @@ To start the iterative training loop on Apple Silicon:
 3. Configure `train/config.toml` with your schedule and model settings.
 4. Run the training command:
    ```bash
-   cd train && uv run training
+   # Single cycle from live cameras
+   cd train && uv run training live
+
+   # Batch train on local folder with /images and /metar
+   cd train && uv run training batch --folder /path/to/data
+
+   # Continuous training on configured schedule
+   cd train && uv run training schedule
    ```
+
+### Commands
+- **live**: Collects the latest webcam images and METAR and runs the training loop once.
+- **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
+- **schedule**: Launches the training loop as a persistent service on the configured schedule.
 
 ## Design
 This project implements a real-time image classification system that fine-tunes a `convnext_tiny` model using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The training occurs iteratively as frames are captured from multiple webcams and processed in small batches.

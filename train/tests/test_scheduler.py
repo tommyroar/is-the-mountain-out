@@ -21,7 +21,7 @@ def test_scheduler_initialization(mock_weather, mock_aps, mock_model_cls, mock_c
     mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
     mock_model_cls.return_value = mock_model
     
-    trainer = TrainingScheduler('dummy_path.yaml', 'dummy_mountain.toml')
+    trainer = TrainingScheduler('dummy_path.toml', 'dummy_mountain.toml')
     
     # Check if jobs were added
     trainer.scheduler.add_job.assert_called_once()
@@ -31,7 +31,7 @@ def test_scheduler_initialization(mock_weather, mock_aps, mock_model_cls, mock_c
 @patch('scheduler.WebcamStream')
 @patch('scheduler.WeatherFetcher')
 def test_batch_training_cycle_execution(mock_weather_cls, mock_webcam):
-    """Verify that training_cycle captures multiple frames and performs a batch training step."""
+    """Verify that training_cycle captures multiple frames and performs a training step."""
     with patch('scheduler.ConfigLoader') as mock_config:
         mock_config.return_value.webcam_sources = [0, 1]
         mock_config.return_value.metar_station = 'KSEA'
@@ -51,7 +51,7 @@ def test_batch_training_cycle_execution(mock_weather_cls, mock_webcam):
             mock_weather.get_weather_vector.return_value = mock_weather_vector
             mock_weather_cls.return_value = mock_weather
             
-            trainer = TrainingScheduler('dummy_path.yaml')
+            trainer = TrainingScheduler('dummy_path.toml')
             
             # Mock successful webcam captures
             mock_stream = MagicMock()

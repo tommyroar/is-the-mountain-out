@@ -5,11 +5,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from croniter import croniter
 from datetime import datetime
 from typing import Optional, List
+import typer
+import os
+from pathlib import Path
+import subprocess
 
 from config_loader import ConfigLoader
 from webcam import WebcamStream
 from model import ConvNextLoRAModel
 from weather import WeatherFetcher
+
+app = typer.Typer()
 
 class TrainingScheduler:
     def __init__(self, config_path: str, target_toml_path: Optional[str] = None):
@@ -48,7 +54,7 @@ class TrainingScheduler:
         """
         Collects frames from all sources and performs a batch training step.
         """
-        print(f"[{datetime.now()}] Starting batch training cycle...")
+        print(f"[{datetime.now()}] Starting live training cycle...")
         
         weather_vector = self.weather_fetcher.get_weather_vector()
         print(f"  Current Weather Vector (Vis, Ceil): {weather_vector.tolist()}")
@@ -60,11 +66,10 @@ class TrainingScheduler:
         for source in self.config_loader.webcam_sources:
             stream = WebcamStream(source, device=self.device)
             try:
-                tensor = stream.capture_to_tensor() # Shape [1, 3, 224, 224]
+                tensor = stream.capture_to_tensor()
                 if tensor is not None:
-                    # Collect components for batch
-                    image_list.append(tensor.squeeze(0)) # Shape [3, 224, 224]
-                    weather_list.append(weather_vector) # Shape [2]
+                    image_list.append(tensor.squeeze(0))
+                    weather_list.append(weather_vector)
                     label_list.append(torch.tensor(label))
                     print(f"  Source {source}: Captured.")
                 else:
@@ -73,14 +78,12 @@ class TrainingScheduler:
                 stream.release()
         
         if image_list:
-            # Create batches
-            image_batch = torch.stack(image_list) # [B, 3, 224, 224]
-            weather_batch = torch.stack(weather_list) # [B, 2]
-            label_batch = torch.stack(label_list) # [B]
+            image_batch = torch.stack(image_list)
+            weather_batch = torch.stack(weather_list)
+            label_batch = torch.stack(label_list)
             
-            # Batch training step
             loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
-            print(f"[{datetime.now()}] Batch Training Step Complete: Loss = {loss:.4f}")
+            print(f"[{datetime.now()}] Training Step Complete: Loss = {loss:.4f}")
         else:
             print(f"[{datetime.now()}] Training skipped: No frames captured.")
 
@@ -93,19 +96,97 @@ class TrainingScheduler:
         except (KeyboardInterrupt, SystemExit):
             self.scheduler.shutdown()
 
-def run_training():
-    """Entry point for uv run training."""
-    import sys
-    import os
-    config_p = "config.toml"
-    target_p = "../mountain.toml"
+@app.command()
+def live(config: str = "config.toml", mountain: str = "../mountain.toml"):
+    """Collects latest webcam images and METAR and runs the training loop once."""
+    trainer = TrainingScheduler(config, mountain)
+    trainer.training_cycle()
+
+@app.command()
+def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: str = "../mountain.toml"):
+    """Runs the training loop on all valid inputs in a folder with /images and /metar subfolders."""
+    trainer = TrainingScheduler(config, mountain)
     
-    # Check current directory
-    if not os.path.exists(config_p):
-        print(f"Warning: {config_p} not found in current directory. Searching...")
+    image_dir = Path(folder) / "images"
+    metar_dir = Path(folder) / "metar"
     
-    trainer = TrainingScheduler(config_p, target_p)
+    if not image_dir.exists() or not metar_dir.exists():
+        print(f"Error: Folder {folder} must contain /images and /metar subfolders.")
+        raise typer.Exit(code=1)
+        
+    # Simple matching based on filename prefix (timestamp)
+    image_files = sorted(image_dir.glob("*.jpg"))
+    
+    image_list = []
+    weather_list = []
+    label_list = []
+    
+    import cv2
+    from torchvision import transforms
+    from metar import Metar
+
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    for img_p in image_files:
+        metar_p = metar_dir / f"{img_p.stem}.txt"
+        if not metar_p.exists():
+            continue
+            
+        # Load Image
+        frame = cv2.imread(str(img_p))
+        if frame is None: continue
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        tensor = transform(frame_rgb).to(trainer.device)
+        
+        # Load METAR
+        with open(metar_p, 'r') as f:
+            metar_text = f.read().strip()
+        
+        # Parse weather vector (duplicate logic from WeatherFetcher for simplicity)
+        vis, ceil = 0.0, 1.0
+        try:
+            obs = Metar.Metar(metar_text)
+            if obs.vis: vis = min(obs.vis.value('SM'), 10.0) / 10.0
+            if obs.sky:
+                layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
+                ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
+        except: pass
+        
+        image_list.append(tensor)
+        weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
+        label_list.append(torch.tensor(label))
+        
+        # If batch is full or at end, train
+        if len(image_list) >= 8:
+            loss = trainer.model_wrapper.train_step(
+                torch.stack(image_list), torch.stack(weather_list), 
+                torch.stack(label_list), trainer.optimizer
+            )
+            print(f"Processed batch of 8: Loss = {loss:.4f}")
+            image_list, weather_list, label_list = [], [], []
+
+    # Final batch
+    if image_list:
+        loss = trainer.model_wrapper.train_step(
+            torch.stack(image_list), torch.stack(weather_list), 
+            torch.stack(label_list), trainer.optimizer
+        )
+        print(f"Processed final batch of {len(image_list)}: Loss = {loss:.4f}")
+
+@app.command()
+def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
+    """Launches the launchctl service for continuous training."""
+    # This command can either run the persistent loop or set up the plist
+    # Given the request for "suspending and waking up", we'll implement the persistent loop
+    # that uses APScheduler, which is standard for "continuous interval" in scripts.
+    trainer = TrainingScheduler(config, mountain)
     trainer.start()
 
 if __name__ == "__main__":
-    run_training()
+    app()

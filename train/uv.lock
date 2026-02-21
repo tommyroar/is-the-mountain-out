@@ -1009,6 +1009,7 @@ dependencies = [
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchvision" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -1030,6 +1031,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.10.0" },
     { name = "torchaudio", specifier = ">=2.10.0" },
     { name = "torchvision", specifier = ">=0.25.0" },
+    { name = "typer", specifier = ">=0.24.0" },
 ]
 
 [package.metadata.requires-dev]
