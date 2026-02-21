@@ -49,6 +49,22 @@ uv run training unschedule # Unload and remove
 - **schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `schedule_seconds`) to run the `once` command.
 - **unschedule**: Unloads and removes the `launchctl` service.
 
+## Training Goals & Metrics
+The primary goal is to achieve a model capable of high-confidence mountain detection across varying weather and lighting conditions.
+
+### Current State (Baseline)
+At the start of iterative training (with a pre-trained backbone and randomized classification head), the metrics are:
+- **Loss (Cross-Entropy):** ~0.69 (Consistent with random initialization for 2 classes).
+- **Accuracy:** ~50% (Baseline random guessing).
+- **F1-Score:** ~0.00 (No meaningful classification).
+
+### Target Benchmarks
+Before the model's predictions are considered "sufficient" to announce if the mountain is out, the following targets must be met:
+- **Accuracy:** > 95% on a diverse validation set (including varying ceiling/visibility METAR values).
+- **Precision:** > 98% (High priority on minimizing "false positives" where the mountain is announced as out but obscured).
+- **Loss:** < 0.10.
+- **F1-Score:** > 0.92.
+
 ## Technical Strategy
 - **Backbone:** `convnext_tiny` via `timm`.
 - **PEFT:** LoRA layers targeting the `fc1` and `fc2` Linear layers in the MLP blocks.
