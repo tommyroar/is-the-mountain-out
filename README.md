@@ -58,10 +58,7 @@ uv run training unschedule # Unload and remove
 
 ## Project Structure
 - `mountain.toml`: Target-specific configuration (coordinates, height, webcam links).
+- `train/`: Core training package (model, scheduler, utils).
+- `collect/`: Standalone collection package.
 - `train/config.toml`: General training and scheduling configuration.
-- `train/scheduler.py`: Main CLI and training loop orchestration.
-- `train/collector.py`: Data collection utility.
-- `train/utils.py`: Shared hardware-accelerated capture and weather fetching logic.
-- `train/model.py`: Dual-input LoRA model implementation.
-- `train/config_loader.py`: Unified TOML configuration loader.
 - `data/`: Local storage for `collect` outputs (ignored by git).

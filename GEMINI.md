@@ -40,7 +40,10 @@ All commands should be executed from the **root project directory**:
   - `test_webcam`: Hardware acceleration and zero-disk capture.
   - `test_scheduler`: Training cycle orchestration.
 
-## Data Structure
-- `/data`: Local directory for collected images and METAR files (ignored by git).
-- `/train/checkpoints`: Local storage for model weights (ignored by git).
-- `/train/tests`: Comprehensive unit test suite.
+## Project Structure
+- `mountain.toml`: Target-specific configuration (coordinates, height, webcam links).
+- `train/`: Training package containing model logic, scheduler, and configuration.
+- `collect/`: Data collection package for capturing live webcam datasets.
+- `train/config.toml`: General training and scheduling configuration.
+- `data/`: Local storage for `collect` outputs (ignored by git).
+- `train/checkpoints`: Local storage for model weights (ignored by git).
