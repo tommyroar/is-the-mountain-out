@@ -27,11 +27,15 @@ To start the iterative training loop on Apple Silicon:
 
    # Continuous training via launchctl
    cd train && uv run python scheduler.py schedule
+
+   # Single collection of all sources to /data
+   cd train && uv run collect
    ```
 
 ### Commands
 - **live**: Runs a continuous loop capturing webcam images and METAR data. It uses **gradient accumulation** to perform a training step after a configurable number of captures (defaulting to 5 minutes between captures).
 - **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
+- **collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
 - **schedule**: Installs and loads a `launchctl` service to run the `live` command periodically.
 - **unschedule**: Unloads and removes the `launchctl` service.
 

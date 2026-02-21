@@ -3,6 +3,7 @@ import torch
 import torch.optim as optim
 from unittest.mock import MagicMock, patch
 from scheduler import Trainer
+from utils import WebcamStream, WeatherFetcher
 
 @patch('scheduler.ConfigLoader')
 @patch('scheduler.ConvNextLoRAModel')
