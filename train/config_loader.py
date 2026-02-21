@@ -17,7 +17,7 @@ class ConfigLoader:
 
     def _validate_config(self):
         # Basic config validation
-        required_keys = ['schedule_seconds', 'lora_settings']
+        required_keys = ['schedule_seconds', 'lora_settings', 'capture_interval_seconds', 'gradient_accumulation_steps']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"Missing required config key: {key}")
@@ -33,6 +33,14 @@ class ConfigLoader:
     @property
     def schedule_seconds(self) -> int:
         return self.config['schedule_seconds']
+
+    @property
+    def capture_interval_seconds(self) -> int:
+        return self.config['capture_interval_seconds']
+
+    @property
+    def gradient_accumulation_steps(self) -> int:
+        return self.config['gradient_accumulation_steps']
 
     @property
     def lora_settings(self) -> Dict[str, Any]:

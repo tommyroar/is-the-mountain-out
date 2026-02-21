@@ -26,14 +26,17 @@ def test_trainer_initialization(mock_weather, mock_model_cls, mock_config):
 
 @patch('scheduler.WebcamStream')
 @patch('scheduler.WeatherFetcher')
-def test_live_training_cycle_execution(mock_weather_cls, mock_webcam):
-    """Verify that live_training_cycle captures multiple frames and performs a batch training step."""
+@patch('time.sleep', side_effect=InterruptedError) # To break the loop after one cycle
+def test_live_training_loop_cycle(mock_sleep, mock_weather_cls, mock_webcam):
+    """Verify that live_training_loop captures multiple frames and performs a batch training step."""
     with patch('scheduler.ConfigLoader') as mock_config:
         mock_config.return_value.webcam_sources = [0, 1]
         mock_config.return_value.metar_station = 'KSEA'
         mock_config.return_value.lora_settings = {
             'rank': 8, 'alpha': 16, 'target_modules': ['fc1']
         }
+        mock_config.return_value.capture_interval_seconds = 0
+        mock_config.return_value.gradient_accumulation_steps = 1
         
         with patch('scheduler.ConvNextLoRAModel') as mock_model_cls:
             mock_model = MagicMock()
@@ -47,6 +50,7 @@ def test_live_training_cycle_execution(mock_weather_cls, mock_webcam):
             mock_weather_cls.return_value = mock_weather
             
             trainer = Trainer('dummy_path.toml')
+            trainer.optimizer = MagicMock()
             
             # Mock successful webcam captures
             mock_stream = MagicMock()
@@ -54,10 +58,9 @@ def test_live_training_cycle_execution(mock_weather_cls, mock_webcam):
             mock_stream.capture_to_tensor.return_value = mock_tensor
             mock_webcam.return_value = mock_stream
             
-            trainer.optimizer = MagicMock()
-            
-            # Run the training cycle
-            trainer.live_training_cycle(label=1)
+            # Run the training cycle (expect loop break via mock_sleep)
+            with pytest.raises(InterruptedError):
+                trainer.live_training_loop(label=1)
             
             # Verify interactions
             assert mock_stream.capture_to_tensor.call_count == 2

@@ -30,7 +30,7 @@ To start the iterative training loop on Apple Silicon:
    ```
 
 ### Commands
-- **live**: Collects the latest webcam images and METAR and runs the training loop once.
+- **live**: Runs a continuous loop capturing webcam images and METAR data. It uses **gradient accumulation** to perform a training step after a configurable number of captures (defaulting to 5 minutes between captures).
 - **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
 - **schedule**: Installs and loads a `launchctl` service to run the `live` command periodically.
 - **unschedule**: Unloads and removes the `launchctl` service.

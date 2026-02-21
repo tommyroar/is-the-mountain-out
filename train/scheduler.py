@@ -31,48 +31,63 @@ class Trainer:
         self.optimizer = optim.Adam(self.model_wrapper.model.parameters(), lr=0.001)
         self.weather_fetcher = WeatherFetcher(self.config_loader.metar_station)
 
-    def live_training_cycle(self, label: int = 1):
+    def live_training_loop(self, label: int = 1):
         """
-        Collects frames from all sources and performs a batch training step.
+        Continuously captures frames and performs batch training using gradient accumulation logic.
         """
-        print(f"[{datetime.now()}] Starting live training cycle...")
-        
-        weather_vector = self.weather_fetcher.get_weather_vector()
-        print(f"  Current Weather Vector (Vis, Ceil): {weather_vector.tolist()}")
+        print(f"[{datetime.now()}] Starting continuous live training loop...")
         
         image_list = []
         weather_list = []
         label_list = []
         
-        for source in self.config_loader.webcam_sources:
-            stream = WebcamStream(source, device=self.device)
-            try:
-                tensor = stream.capture_to_tensor()
-                if tensor is not None:
-                    image_list.append(tensor.squeeze(0))
-                    weather_list.append(weather_vector)
-                    label_list.append(torch.tensor(label))
-                    print(f"  Source {source}: Captured.")
-                else:
-                    print(f"  Source {source}: Capture failed.")
-            finally:
-                stream.release()
-        
-        if image_list:
-            image_batch = torch.stack(image_list)
-            weather_batch = torch.stack(weather_list)
-            label_batch = torch.stack(label_list)
-            
-            loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
-            print(f"[{datetime.now()}] Training Step Complete: Loss = {loss:.4f}")
-        else:
-            print(f"[{datetime.now()}] Training skipped: No frames captured.")
+        try:
+            while True:
+                print(f"[{datetime.now()}] Capture cycle started...")
+                weather_vector = self.weather_fetcher.get_weather_vector()
+                
+                cycle_captured = False
+                for source in self.config_loader.webcam_sources:
+                    stream = WebcamStream(source, device=self.device)
+                    try:
+                        tensor = stream.capture_to_tensor()
+                        if tensor is not None:
+                            image_list.append(tensor.squeeze(0))
+                            weather_list.append(weather_vector)
+                            label_list.append(torch.tensor(label))
+                            cycle_captured = True
+                        else:
+                            print(f"  Source {source}: Capture failed.")
+                    finally:
+                        stream.release()
+                
+                if cycle_captured:
+                    current_accum = len(image_list) // len(self.config_loader.webcam_sources)
+                    print(f"  Accumulation step {current_accum}/{self.config_loader.gradient_accumulation_steps}")
+                    
+                    if current_accum >= self.config_loader.gradient_accumulation_steps:
+                        # Perform training step
+                        image_batch = torch.stack(image_list)
+                        weather_batch = torch.stack(weather_list)
+                        label_batch = torch.stack(label_list)
+                        
+                        loss = self.model_wrapper.train_step(image_batch, weather_batch, label_batch, self.optimizer)
+                        print(f"[{datetime.now()}] Batch Training Step Complete: Loss = {loss:.4f}")
+                        
+                        # Reset accumulators
+                        image_list, weather_list, label_list = [], [], []
+                
+                # Wait for next interval
+                time.sleep(self.config_loader.capture_interval_seconds)
+                
+        except (KeyboardInterrupt, SystemExit):
+            print("\nExiting live training loop.")
 
 @app.command()
 def live(config: str = "config.toml", mountain: str = "../mountain.toml"):
-    """Collects latest webcam images and METAR and runs the training loop once."""
+    """Runs a continuous loop capturing images and weather data to train the model."""
     trainer = Trainer(config, mountain)
-    trainer.live_training_cycle()
+    trainer.live_training_loop()
 
 @app.command()
 def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: str = "../mountain.toml"):
