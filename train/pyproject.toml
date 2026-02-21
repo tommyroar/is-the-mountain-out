@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 training = "scheduler:app"
+collect = "collector:app"
 
 [dependency-groups]
 dev = [
