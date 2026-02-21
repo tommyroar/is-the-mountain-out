@@ -97,7 +97,7 @@ def run_training():
     """Entry point for uv run training."""
     import sys
     import os
-    config_p = "config.yaml"
+    config_p = "config.toml"
     target_p = "../mountain.toml"
     
     # Check current directory
