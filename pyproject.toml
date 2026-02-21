@@ -1,7 +1,7 @@
 [project]
-name = "train"
+name = "mountain-trainer"
 version = "0.1.0"
-description = "Add your description here"
+description = "Iterative LoRA training for Mount Rainier visibility detection"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -19,11 +19,11 @@ dependencies = [
 ]
 
 [project.scripts]
-training = "scheduler:app"
-collect = "collector:app"
+training = "train.scheduler:app"
+collect = "collect.collector:app"
 
 [tool.setuptools]
-py-modules = ["config_loader", "collector", "model", "utils", "scheduler", "main"]
+packages = ["train", "collect"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from peft import LoraConfig, get_peft_model
 from typing import List, Optional
+import os
 
 class ConvNextLoRAModel:
     def __init__(self, num_classes: int = 2, rank: int = 8, alpha: int = 16, 
@@ -41,37 +42,21 @@ class ConvNextLoRAModel:
 
     def train_step(self, image_batch: torch.Tensor, weather_batch: torch.Tensor, 
                    label_batch: torch.Tensor, optimizer: torch.optim.Optimizer):
-        """
-        Perform a training step with a batch of images and weather vectors.
-        image_batch: [B, 3, 224, 224]
-        weather_batch: [B, 2]
-        label_batch: [B]
-        """
         self.model.train()
         optimizer.zero_grad()
         
-        # Ensure tensors are on correct device
         image_batch = image_batch.to(self.device)
         weather_batch = weather_batch.to(self.device)
         label_batch = label_batch.to(self.device)
         
-        # Forward pass through backbone
-        features = self.model['backbone'](image_batch) # Shape [B, 768]
-        
-        # Concatenate features with weather vectors
-        combined_input = torch.cat((features, weather_batch), dim=1) # Shape [B, 770]
-        
-        # Classification
+        features = self.model['backbone'](image_batch)
+        combined_input = torch.cat((features, weather_batch), dim=1)
         outputs = self.model['classifier'](combined_input)
         
-        # Loss
         loss = torch.nn.functional.cross_entropy(outputs, label_batch)
-        
-        # Backward pass
         loss.backward()
         optimizer.step()
         
-        # Memory cleanup
         loss_val = loss.item()
         del loss, outputs, features, combined_input, label_batch
         if self.device == "mps":
@@ -80,9 +65,6 @@ class ConvNextLoRAModel:
         return loss_val
 
     def predict(self, image_batch: torch.Tensor, weather_batch: torch.Tensor) -> torch.Tensor:
-        """
-        Inference on a batch of inputs. Returns predicted class indices.
-        """
         self.model.eval()
         with torch.no_grad():
             image_batch = image_batch.to(self.device)
@@ -92,3 +74,20 @@ class ConvNextLoRAModel:
             outputs = self.model['classifier'](combined_input)
             _, predicted = torch.max(outputs, 1)
             return predicted
+
+    def save_checkpoint(self, checkpoint_dir: str):
+        """Saves LoRA adapters and classifier head."""
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        self.model['backbone'].save_pretrained(checkpoint_dir)
+        torch.save(self.model['classifier'].state_dict(), os.path.join(checkpoint_dir, "classifier.pt"))
+        print(f"Checkpoint saved to {checkpoint_dir}")
+
+    def load_checkpoint(self, checkpoint_dir: str):
+        """Loads LoRA adapters and classifier head."""
+        classifier_path = os.path.join(checkpoint_dir, "classifier.pt")
+        if os.path.exists(checkpoint_dir) and os.path.exists(classifier_path):
+            self.model['backbone'].load_adapter(checkpoint_dir, "default")
+            self.model['classifier'].load_state_dict(torch.load(classifier_path, map_location=self.device))
+            print(f"Checkpoint loaded from {checkpoint_dir}")
+            return True
+        return False

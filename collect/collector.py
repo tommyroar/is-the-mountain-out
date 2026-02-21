@@ -5,13 +5,13 @@ from datetime import datetime
 import cv2
 from typing import Optional
 
-from config_loader import ConfigLoader
-from utils import WebcamStream, WeatherFetcher
+from train.config_loader import ConfigLoader
+from train.utils import WebcamStream, WeatherFetcher
 
 app = typer.Typer()
 
 @app.command()
-def collect(config: str = "config.toml", mountain: str = "../mountain.toml", data_root: str = "../data"):
+def collect(config: str = "train/config.toml", mountain: str = "mountain.toml", data_root: str = "data"):
     """
     Runs a single capture of each webcam and METAR data, saving them into a datestamped directory.
     """
