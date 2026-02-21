@@ -153,7 +153,7 @@ def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
     # Path setup
     current_dir = Path.cwd().absolute()
     executable = subprocess.check_output(["which", "uv"], text=True).strip()
-    plist_name = "com.mountain.trainer.plist"
+    plist_name = "homebrew.mxcl.mountain-trainer.plist"
     plist_path = Path.home() / "Library" / "LaunchAgents" / plist_name
     
     # Generate Plist content
@@ -162,7 +162,7 @@ def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.mountain.trainer</string>
+    <string>homebrew.mxcl.mountain-trainer</string>
     <key>ProgramArguments</key>
     <array>
         <string>{executable}</string>
