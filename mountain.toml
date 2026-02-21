@@ -1,0 +1,20 @@
+[mountain]
+name = "Mount Rainier"
+height = 14411 # feet
+height_unit = "FT"
+latitude = 46.8523
+longitude = -121.7603
+
+[[webcams]]
+name = "UW Red Square"
+url = "https://www.washington.edu/cambots/camera1_l.jpg"
+description = "UW Red Square webcam looking towards Mount Rainier"
+
+[[webcams]]
+name = "Paradise Mountain"
+url = "https://www.nps.gov/customcf/webcam/dsp_webcam_image.cfm?id=81B464D2-1DD8-B71B-0B0243CC70D988F8"
+description = "Mount Rainier Paradise Area webcam"
+
+[weather]
+primary_metar = "KSEA"
+nearby_stations = ["KSEA", "KRNT", "KTCM", "KPLU"]
