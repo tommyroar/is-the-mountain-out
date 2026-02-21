@@ -144,5 +144,71 @@ def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: st
         )
         print(f"Final batch: Loss = {loss:.4f}")
 
+@app.command()
+def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
+    """Installs the launchctl service for continuous training."""
+    trainer = Trainer(config, mountain)
+    config_loader = trainer.config_loader
+    
+    # Path setup
+    current_dir = Path.cwd().absolute()
+    executable = subprocess.check_output(["which", "uv"], text=True).strip()
+    plist_name = "com.mountain.trainer.plist"
+    plist_path = Path.home() / "Library" / "LaunchAgents" / plist_name
+    
+    # Generate Plist content
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mountain.trainer</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{executable}</string>
+        <string>run</string>
+        <string>python</string>
+        <string>{current_dir / "scheduler.py"}</string>
+        <string>live</string>
+        <string>--config</string>
+        <string>{current_dir / config}</string>
+        <string>--mountain</string>
+        <string>{current_dir / mountain}</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>{config_loader.schedule_seconds}</integer>
+    <key>StandardErrorPath</key>
+    <string>/tmp/mountain_trainer.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/mountain_trainer.out</string>
+    <key>WorkingDirectory</key>
+    <string>{current_dir}</string>
+</dict>
+</plist>
+"""
+    
+    with open(plist_path, "w") as f:
+        f.write(plist_content)
+        
+    # Load the service
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist_path)])
+    
+    print(f"Service installed and loaded at {plist_path}")
+    print(f"Running every {config_loader.schedule_seconds} seconds.")
+
+@app.command()
+def unschedule():
+    """Unloads and removes the launchctl service."""
+    plist_name = "com.mountain.trainer.plist"
+    plist_path = Path.home() / "Library" / "LaunchAgents" / plist_name
+    
+    if plist_path.exists():
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+        plist_path.unlink()
+        print(f"Service unloaded and removed from {plist_path}")
+    else:
+        print("Service plist not found. Nothing to remove.")
+
 if __name__ == "__main__":
     app()
