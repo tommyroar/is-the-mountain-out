@@ -1,10 +1,47 @@
 # is-the-mountain-out
-Determine via streaming training if the mountain is out
+Determine if "the mountain" (Mount Rainier) is "out" using iterative LoRA training on live webcam streams, optimized for Apple Silicon.
 
-## strategy
-- Get a list of webcams and train a model using Online Learning
-- Apply easy optimizations by incorporating time of day (no mountain at night) and METAR weather data (if visibility is less than X, highly unlikely the mountain is out
-- Raise github PRs with a link to a github page showing images captured at the same time and weather data for users or agents to classify with labels
-- Authorized users can raise GitHub issues identifying when they see the mountain and from what location to fine tune the model
-- Model iteratively updates and produces a new GitHub page with simple message announcing if the mountain is out or not
-- Add a map with a probability chloropleth overlay indicating likelihood that the mountain is out, along with links to webcams used to train and thumbnails of their current status
+## Design
+This project implements a real-time image classification system that fine-tunes a `convnext_tiny` model using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The training occurs iteratively as frames are captured from webcams, with a strict constraint of zero disk usage for image data.
+
+### Technical Strategy
+- **Hardware Acceleration:** Fully optimized for Mac M1/M2/M3 using Metal Performance Shaders (MPS).
+- **Online Learning:** Iterative LoRA training using live webcam captures converted directly to PyTorch tensors.
+- **Data Pipeline:** `OpenCV` for stream capture, `torchvision` for on-device transformations.
+- **Model:** `timm` provided `convnext_tiny` wrapped with `peft` LoRA.
+- **Scheduling:** `APScheduler` with crontab-style triggers defined in `config.toml`.
+- **Optimizations:** Incorporation of time-of-day and METAR weather data to refine predictions (e.g., visibility thresholds).
+
+## Usage
+To start the iterative training loop on Apple Silicon:
+1. Ensure `uv` is installed.
+2. Configure `mountain.toml` in the root directory.
+3. Configure `train/config.toml` with your schedule and model settings.
+4. Run the training command:
+   ```bash
+   # Single cycle from live cameras
+   cd train && uv run python scheduler.py live
+
+   # Batch train on local folder with /images and /metar
+   cd train && uv run python scheduler.py batch --folder /path/to/data
+
+   # Continuous training via launchctl
+   cd train && uv run python scheduler.py schedule
+   ```
+
+### Commands
+- **live**: Runs a continuous loop capturing webcam images and METAR data. It uses **gradient accumulation** to perform a training step after a configurable number of captures (defaulting to 5 minutes between captures).
+- **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
+- **schedule**: Installs and loads a `launchctl` service to run the `live` command periodically.
+- **unschedule**: Unloads and removes the `launchctl` service.
+
+## Design
+This project implements a real-time image classification system that fine-tunes a `convnext_tiny` model using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The training occurs iteratively as frames are captured from multiple webcams and processed in small batches.
+
+### Technical Strategy
+- **Hardware Acceleration:** Fully optimized for Mac M1/M2/M3 using Metal Performance Shaders (MPS).
+- **Online Learning:** Iterative LoRA training using live webcam captures converted directly to PyTorch tensors.
+- **Batch Processing:** Captures are collected from all sources and trained in small batches for improved efficiency.
+- **Dual-Input Head:** The classification head accepts both image features and a 2D METAR weather vector (visibility and ceiling) to refine predictions.
+- **Data Pipeline:** `OpenCV` for stream capture, `torchvision` for on-device transformations.
+- **Scheduling:** `APScheduler` with crontab-style triggers defined in `config.toml`.
