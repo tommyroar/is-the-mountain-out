@@ -8,7 +8,7 @@ def test_config_loader_merge(tmp_path):
     config_file = tmp_path / "config.toml"
     config_data = {
         'webcam_sources': [0],
-        'schedule': ['0 12 * * *'],
+        'schedule_seconds': 1800,
         'lora_settings': {'rank': 4, 'alpha': 8, 'target_modules': ['fc1']}
     }
     with open(config_file, 'wb') as f:
@@ -41,7 +41,7 @@ def test_config_loader_no_toml(tmp_path):
     config_file = tmp_path / "config.toml"
     config_data = {
         'webcam_sources': [0],
-        'schedule': ['0 12 * * *'],
+        'schedule_seconds': 1800,
         'lora_settings': {'rank': 4, 'alpha': 8, 'target_modules': ['fc1']},
         'metar_station': 'KSEA'
     }
@@ -51,3 +51,4 @@ def test_config_loader_no_toml(tmp_path):
     loader = ConfigLoader(str(config_file))
     assert loader.webcam_sources == [0]
     assert loader.metar_station == 'KSEA'
+    assert loader.schedule_seconds == 1800

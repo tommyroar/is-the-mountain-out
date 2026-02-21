@@ -1,8 +1,6 @@
 import time
 import torch
 import torch.optim as optim
-from apscheduler.schedulers.background import BackgroundScheduler
-from croniter import croniter
 from datetime import datetime
 from typing import Optional, List
 import typer
@@ -17,7 +15,7 @@ from weather import WeatherFetcher
 
 app = typer.Typer()
 
-class TrainingScheduler:
+class Trainer:
     def __init__(self, config_path: str, target_toml_path: Optional[str] = None):
         self.config_loader = ConfigLoader(config_path, target_toml_path)
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -32,25 +30,8 @@ class TrainingScheduler:
         )
         self.optimizer = optim.Adam(self.model_wrapper.model.parameters(), lr=0.001)
         self.weather_fetcher = WeatherFetcher(self.config_loader.metar_station)
-        
-        self.scheduler = BackgroundScheduler()
-        self._setup_jobs()
 
-    def _setup_jobs(self):
-        for cron_str in self.config_loader.schedule:
-            fields = cron_str.split()
-            if len(fields) == 5:
-                self.scheduler.add_job(
-                    self.training_cycle,
-                    'cron',
-                    minute=fields[0],
-                    hour=fields[1],
-                    day=fields[2],
-                    month=fields[3],
-                    day_of_week=fields[4]
-                )
-
-    def training_cycle(self, label: int = 1):
+    def live_training_cycle(self, label: int = 1):
         """
         Collects frames from all sources and performs a batch training step.
         """
@@ -87,25 +68,16 @@ class TrainingScheduler:
         else:
             print(f"[{datetime.now()}] Training skipped: No frames captured.")
 
-    def start(self):
-        self.scheduler.start()
-        print("Scheduler started. Press Ctrl+C to exit.")
-        try:
-            while True:
-                time.sleep(1)
-        except (KeyboardInterrupt, SystemExit):
-            self.scheduler.shutdown()
-
 @app.command()
 def live(config: str = "config.toml", mountain: str = "../mountain.toml"):
     """Collects latest webcam images and METAR and runs the training loop once."""
-    trainer = TrainingScheduler(config, mountain)
-    trainer.training_cycle()
+    trainer = Trainer(config, mountain)
+    trainer.live_training_cycle()
 
 @app.command()
 def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: str = "../mountain.toml"):
     """Runs the training loop on all valid inputs in a folder with /images and /metar subfolders."""
-    trainer = TrainingScheduler(config, mountain)
+    trainer = Trainer(config, mountain)
     
     image_dir = Path(folder) / "images"
     metar_dir = Path(folder) / "metar"
@@ -114,7 +86,6 @@ def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: st
         print(f"Error: Folder {folder} must contain /images and /metar subfolders.")
         raise typer.Exit(code=1)
         
-    # Simple matching based on filename prefix (timestamp)
     image_files = sorted(image_dir.glob("*.jpg"))
     
     image_list = []
@@ -135,20 +106,16 @@ def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: st
 
     for img_p in image_files:
         metar_p = metar_dir / f"{img_p.stem}.txt"
-        if not metar_p.exists():
-            continue
+        if not metar_p.exists(): continue
             
-        # Load Image
         frame = cv2.imread(str(img_p))
         if frame is None: continue
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         tensor = transform(frame_rgb).to(trainer.device)
         
-        # Load METAR
         with open(metar_p, 'r') as f:
             metar_text = f.read().strip()
         
-        # Parse weather vector (duplicate logic from WeatherFetcher for simplicity)
         vis, ceil = 0.0, 1.0
         try:
             obs = Metar.Metar(metar_text)
@@ -162,31 +129,74 @@ def batch(folder: str, label: int = 1, config: str = "config.toml", mountain: st
         weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
         label_list.append(torch.tensor(label))
         
-        # If batch is full or at end, train
         if len(image_list) >= 8:
             loss = trainer.model_wrapper.train_step(
                 torch.stack(image_list), torch.stack(weather_list), 
                 torch.stack(label_list), trainer.optimizer
             )
-            print(f"Processed batch of 8: Loss = {loss:.4f}")
+            print(f"Processed batch: Loss = {loss:.4f}")
             image_list, weather_list, label_list = [], [], []
 
-    # Final batch
     if image_list:
         loss = trainer.model_wrapper.train_step(
             torch.stack(image_list), torch.stack(weather_list), 
             torch.stack(label_list), trainer.optimizer
         )
-        print(f"Processed final batch of {len(image_list)}: Loss = {loss:.4f}")
+        print(f"Final batch: Loss = {loss:.4f}")
 
 @app.command()
 def schedule(config: str = "config.toml", mountain: str = "../mountain.toml"):
-    """Launches the launchctl service for continuous training."""
-    # This command can either run the persistent loop or set up the plist
-    # Given the request for "suspending and waking up", we'll implement the persistent loop
-    # that uses APScheduler, which is standard for "continuous interval" in scripts.
-    trainer = TrainingScheduler(config, mountain)
-    trainer.start()
+    """Installs the launchctl service for continuous training."""
+    trainer = Trainer(config, mountain)
+    config_loader = trainer.config_loader
+    
+    # Path setup
+    current_dir = Path.cwd().absolute()
+    executable = subprocess.check_output(["which", "uv"], text=True).strip()
+    plist_name = "com.mountain.trainer.plist"
+    plist_path = Path.home() / "Library" / "LaunchAgents" / plist_name
+    
+    # Generate Plist content
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mountain.trainer</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{executable}</string>
+        <string>run</string>
+        <string>--project</string>
+        <string>{current_dir}</string>
+        <string>training</string>
+        <string>live</string>
+        <string>--config</string>
+        <string>{current_dir / config}</string>
+        <string>--mountain</string>
+        <string>{current_dir / mountain}</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>{config_loader.schedule_seconds}</integer>
+    <key>StandardErrorPath</key>
+    <string>/tmp/mountain_trainer.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/mountain_trainer.out</string>
+    <key>WorkingDirectory</key>
+    <string>{current_dir}</string>
+</dict>
+</plist>
+"""
+    
+    with open(plist_path, "w") as f:
+        f.write(plist_content)
+        
+    # Load the service
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist_path)])
+    
+    print(f"Service installed and loaded at {plist_path}")
+    print(f"Running every {config_loader.schedule_seconds} seconds.")
 
 if __name__ == "__main__":
     app()

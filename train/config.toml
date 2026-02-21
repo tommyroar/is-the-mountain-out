@@ -5,10 +5,7 @@ webcam_sources = [
 
 metar_station = "KSEA" # Seattle-Tacoma International Airport
 
-schedule = [
-    "0 12 * * *", # Every day at 12:00 PM
-    "*/30 * * * *" # Every 30 minutes for testing
-]
+schedule_seconds = 1800 # 30 minutes
 
 [lora_settings]
 rank = 8

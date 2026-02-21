@@ -1,5 +1,4 @@
 import tomli
-from croniter import croniter
 from typing import List, Dict, Any, Optional
 
 class ConfigLoader:
@@ -18,15 +17,10 @@ class ConfigLoader:
 
     def _validate_config(self):
         # Basic config validation
-        required_keys = ['schedule', 'lora_settings']
+        required_keys = ['schedule_seconds', 'lora_settings']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"Missing required config key: {key}")
-
-        # Validate schedule strings
-        for cron_str in self.config['schedule']:
-            if not croniter.is_valid(cron_str):
-                raise ValueError(f"Invalid crontab string: {cron_str}")
 
     @property
     def webcam_sources(self) -> List[Any]:
@@ -37,8 +31,8 @@ class ConfigLoader:
         return list(set(sources)) # Unique sources
 
     @property
-    def schedule(self) -> List[str]:
-        return self.config['schedule']
+    def schedule_seconds(self) -> int:
+        return self.config['schedule_seconds']
 
     @property
     def lora_settings(self) -> Dict[str, Any]:
