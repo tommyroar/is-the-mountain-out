@@ -9,9 +9,8 @@ from pathlib import Path
 import subprocess
 
 from config_loader import ConfigLoader
-from webcam import WebcamStream
+from utils import WebcamStream, WeatherFetcher
 from model import ConvNextLoRAModel
-from weather import WeatherFetcher
 
 app = typer.Typer()
 
