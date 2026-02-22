@@ -76,16 +76,22 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             cv2.imwrite(str(image_path), frame)
             print(f"  Source {source}: Saved as {filename}")
             
+            metar_path = metar_dir / "metar.txt"
             log_event("CAPTURE", "SUCCESS", {
+                "input_url": source,
                 "image_path": str(image_path),
+                "metar_path": str(metar_path) if metar_success else None,
                 "metar_success": metar_success,
-                "source": source,
                 **(step_info or {})
             })
             return True
         else:
             print(f"  Source {source}: Capture failed.")
-            log_event("CAPTURE", "FAILURE", {"reason": "Webcam capture failed", **(step_info or {})})
+            log_event("CAPTURE", "FAILURE", {
+                "input_url": source,
+                "reason": "Webcam capture failed", 
+                **(step_info or {})
+            })
             return False
     finally:
         stream.release()
@@ -105,10 +111,14 @@ def collect(config: str = "mountain.toml", data_root: str = "data"):
     """
     Runs a single capture of the configured webcam and METAR data.
     """
+    _collect_internal(config, data_root)
+    print(f"[{datetime.now(UTC)}] Collection complete.")
+
+def _collect_internal(config: str = "mountain.toml", data_root: str = "data", step_info: Optional[Dict] = None):
+    """Internal helper for collection logic."""
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    perform_capture(config_loader, weather_fetcher, data_root)
-    print(f"[{datetime.now(UTC)}] Collection complete.")
+    perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
 
 @app.command()
 def plan(
@@ -121,7 +131,7 @@ def plan(
     Accepts intervals (e.g., '10m', '1h') and a terminal 'stop' command.
     """
     state_path = Path(PLAN_STATE_FILE)
-    state = {"step_index": 0, "next_run": 0}
+    state = {"step_index": 0, "next_run": 0, "last_process_start": 0}
     
     if state_path.exists():
         with open(state_path, "r") as f:
@@ -135,8 +145,19 @@ def plan(
         return
 
     now = time.time()
+    
+    # If the process just started and the next run is far away (>10m), 
+    # run a HEARTBEAT capture to validate the service is alive.
+    if state.get("last_process_start", 0) < (now - 60): # Basic check for new process run
+        state["last_process_start"] = now
+        if now < state["next_run"] and (state["next_run"] - now) > 600:
+            print("Performing startup heartbeat capture...")
+            _collect_internal(config=config, data_root=data_root, step_info={"type": "HEARTBEAT"})
+
     if now < state["next_run"]:
         print(f"Waiting... Next run in {int(state['next_run'] - now)}s")
+        # Save process start time even if we wait
+        with open(state_path, "w") as f: json.dump(state, f)
         return
 
     step = steps[current_index]
@@ -150,7 +171,7 @@ def plan(
         return
 
     # Perform capture with logging info
-    step_info = {"step_index": current_index + 1, "total_steps": len(steps)}
+    step_info = {"step_index": current_index + 1, "total_steps": len(steps), "type": "PLAN_STEP"}
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     success = perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
@@ -196,6 +217,15 @@ def generate_calendar_plist(schedule: Dict[str, int]) -> str:
 @app.command()
 def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = None):
     """Installs the launchctl service. If plan_steps is provided, schedules the 'plan' command."""
+    
+    # Immediate validation run
+    print("Performing immediate validation capture...")
+    try:
+        _collect_internal(config=config, step_info={"type": "INITIAL_VALIDATION"})
+    except Exception as e:
+        print(f"Validation failed: {e}. Aborting schedule.")
+        raise typer.Exit(code=1)
+
     config_loader = ConfigLoader(config)
     current_dir = Path.cwd().absolute()
     executable = subprocess.check_output(["which", "uv"], text=True).strip()
