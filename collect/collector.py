@@ -14,8 +14,24 @@ from train.utils import WebcamStream, WeatherFetcher
 app = typer.Typer()
 
 PLAN_STATE_FILE = "data/plan_state.json"
+COLLECTION_LOG = "data/collection.log"
 
-def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data"):
+def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
+    """Writes a structured JSON log entry."""
+    log_path = Path(COLLECTION_LOG)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    entry = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "event": event_type,
+        "status": status,
+        "metadata": metadata or {}
+    }
+    
+    with open(log_path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data", step_info: Optional[Dict] = None):
     """Core logic to capture a single image and METAR data with UTC-based naming."""
     now_utc = datetime.now(UTC)
     date_str = now_utc.strftime("%Y%m%d")
@@ -34,10 +50,12 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     
     # Fetch and save METAR
     metar_text = weather_fetcher.fetch_latest_metar()
+    metar_success = False
     if metar_text:
         with open(metar_dir / "metar.txt", "w") as f:
             f.write(metar_text)
         print("  METAR data saved.")
+        metar_success = True
     else:
         print("  Warning: METAR capture failed.")
     
@@ -45,6 +63,7 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     source = config_loader.webcam_url
     if not source:
         print("Error: No webcam source configured.")
+        log_event("CAPTURE", "ERROR", {"reason": "No webcam source", **(step_info or {})})
         return False
         
     stream = WebcamStream(source)
@@ -53,11 +72,20 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
         if frame is not None:
             safe_name = str(source).replace("/", "_").replace(":", "_").replace(".", "_")
             filename = f"{time_str}_{safe_name}.jpg"
-            cv2.imwrite(str(image_dir / filename), frame)
+            image_path = image_dir / filename
+            cv2.imwrite(str(image_path), frame)
             print(f"  Source {source}: Saved as {filename}")
+            
+            log_event("CAPTURE", "SUCCESS", {
+                "image_path": str(image_path),
+                "metar_success": metar_success,
+                "source": source,
+                **(step_info or {})
+            })
             return True
         else:
             print(f"  Source {source}: Capture failed.")
+            log_event("CAPTURE", "FAILURE", {"reason": "Webcam capture failed", **(step_info or {})})
             return False
     finally:
         stream.release()
@@ -98,6 +126,8 @@ def plan(
     if state_path.exists():
         with open(state_path, "r") as f:
             state = json.load(f)
+    else:
+        log_event("PLAN", "START", {"total_steps": len(steps)})
             
     current_index = state["step_index"]
     if current_index >= len(steps):
@@ -112,16 +142,18 @@ def plan(
     step = steps[current_index]
     if step.lower() == "stop":
         print("Plan 'stop' reached. Cleaning up...")
+        log_event("PLAN", "STOP", {"completed_steps": current_index})
         
         # Self-unschedule
         unschedule()
         if state_path.exists(): state_path.unlink()
         return
 
-    # Perform capture
+    # Perform capture with logging info
+    step_info = {"step_index": current_index + 1, "total_steps": len(steps)}
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    success = perform_capture(config_loader, weather_fetcher, data_root)
+    success = perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
     
     # Calculate next step
     interval = parse_interval(step)
