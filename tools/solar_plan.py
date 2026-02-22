@@ -1,6 +1,6 @@
 import sys
 import random
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, UTC
 from typing import List, Tuple
 try:
     from astral import LocationInfo
@@ -22,59 +22,97 @@ def get_solar_events(lat: float, lon: float, start_date: date, days: int) -> Lis
         })
     return events
 
-def generate_collection_plan(events: List[dict], current_time: datetime, jitter_range: int = 300) -> List[str]:
+def generate_collection_plan(lat: float, lon: float, current_time: datetime, target_count: int = 100, jitter_range: int = 300) -> List[str]:
     """
-    Generates a multi-day plan targeting golden hours with random jitter.
-    jitter_range: max seconds to offset each capture (default 5m).
+    Generates a plan targeting exactly target_count captures, focused on solar events.
     """
     intervals = []
     last_event_time = current_time
+    captured_so_far = 0
+    day_offset = 0
     
-    for event in events:
-        # Targets: Sunrise and Sunset
-        for target_base in [event["sunrise"], event["sunset"]]:
-            # Apply random jitter
-            jitter = random.randint(-jitter_range, jitter_range)
-            target = target_base + timedelta(seconds=jitter)
+    location = LocationInfo("Custom", "USA", "UTC", lat, lon)
+
+    while captured_so_far < target_count:
+        day = current_time.date() + timedelta(days=day_offset)
+        s = sun(location.observer, date=day)
+        
+        # Events for the day: Sunrise and Sunset
+        # We want to cluster around these
+        for event_base in [s["sunrise"], s["sunset"]]:
+            if captured_so_far >= target_count:
+                break
+                
+            # Move to the start of the cluster (20m before the event)
+            cluster_start = event_base - timedelta(minutes=20)
             
-            if target > last_event_time:
-                diff = target - last_event_time
-                seconds = int(diff.total_seconds())
+            if cluster_start > last_event_time:
+                # Gap from last activity to this cluster
+                gap_seconds = int((cluster_start - last_event_time).total_seconds())
                 
-                # Split long gaps (e.g., night or mid-day) to maintain activity
-                if seconds > 14400: # > 4 hours
-                    parts = 3
-                    for _ in range(parts):
-                        intervals.append(f"{seconds // parts}s")
+                # If gap is huge (night), add a spacer capture
+                if gap_seconds > 14400: # 4 hours
+                    intervals.append(f"{gap_seconds // 2}s")
+                    captured_so_far += 1
+                    if captured_so_far >= target_count: break
+                    intervals.append(f"{gap_seconds // 2}s")
                 else:
-                    intervals.append(f"{seconds}s")
+                    intervals.append(f"{gap_seconds}s")
                 
-                # Add a few rapid captures around the event
-                intervals.append(f"{1200 + random.randint(-60, 60)}s") # ~20m
-                intervals.append(f"{1200 + random.randint(-60, 60)}s") # ~20m
+                captured_so_far += 1
+                if captured_so_far >= target_count: break
                 
-                last_event_time = target + timedelta(minutes=40)
+                # Cluster: 5 captures every 10 mins (including the one that just triggered)
+                for _ in range(4):
+                    step_interval = 600 + random.randint(-jitter_range, jitter_range)
+                    intervals.append(f"{step_interval}s")
+                    captured_so_far += 1
+                    if captured_so_far >= target_count: break
+                
+                last_event_time = cluster_start + timedelta(seconds=sum([int(i[:-1]) for i in intervals[-5:] if i.endswith('s')]))
+            
+        day_offset += 1
+        if day_offset > 365: # Safety break
+            break
                 
     intervals.append("stop")
     return intervals
 
 if __name__ == "__main__":
     LAT, LON = 47.6533, -122.3091
-    DAYS = 3
-    start = date.today()
-    events = get_solar_events(LAT, LON, start, DAYS)
+    TARGET = 100
     
-    print(f"Solar Analysis (3-Day Plan) for {LAT}, {LON}:")
+    # Analyze the next few days for the printout
+    events = get_solar_events(LAT, LON, date.today(), 3)
+    print(f"Solar Analysis for {LAT}, {LON}:")
     print("-" * 60)
     for e in events:
         print(f"{e['date']}: Sunrise {e['sunrise'].strftime('%H:%M')} | Sunset {e['sunset'].strftime('%H:%M')} UTC")
 
-    # Use a fixed seed for 'Suggested' output consistency in this turn, 
-    # but actual usage will be random.
-    random.seed(42)
-    plan_steps = generate_collection_plan(events, datetime.now(events[0]['sunrise'].tzinfo))
+    # Generate the full 100-step plan
+    # Use UTC now for calculation
+    now_utc = datetime.now(UTC)
+    plan_steps = generate_collection_plan(LAT, LON, now_utc, target_count=TARGET)
     
-    print("\nSuggested 3-Day Plan with Jitter:")
-    print(f"uv run collect schedule --plan-steps {' '.join(plan_steps)}")
+    # Calculate days based on total day_offset from the plan generation
+    # (re-running generation or just moving the variable outside)
+    total_days = 0
+    test_count = 0
+    while test_count < TARGET:
+        total_days += 1
+        # Simple estimate: ~12 captures per day in this logic
+        test_count += 12
+
+    print(f"\nGenerated {len(plan_steps) - 1} capture intervals to reach target.")
+    print("\nSuggested Command:")
+    # Group plan steps for cleaner output if needed, but we need them individual for Typer
+    cmd = "uv run collect schedule"
+    for step in plan_steps:
+        cmd += f" --plan-steps {step}"
     
-    print("\nNote: Jitter (±5m) has been applied to targets to ensure diverse temporal samples.")
+    print(cmd)
+    
+    print(f"\nPlan Summary:")
+    print(f"  Target Captures: {TARGET}")
+    print(f"  Duration: Approximately {total_days} days")
+    print(f"  Jitter: ±5m per step")
