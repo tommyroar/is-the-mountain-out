@@ -2,15 +2,18 @@ import time
 import typer
 import os
 import subprocess
+import json
 from pathlib import Path
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 import cv2
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from train.config_loader import ConfigLoader
 from train.utils import WebcamStream, WeatherFetcher
 
 app = typer.Typer()
+
+PLAN_STATE_FILE = "data/plan_state.json"
 
 def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data"):
     """Core logic to capture a single image and METAR data with UTC-based naming."""
@@ -59,6 +62,16 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     finally:
         stream.release()
 
+def parse_interval(interval_str: str) -> int:
+    """Parses strings like '10m', '1h', '600s' into seconds."""
+    if interval_str.endswith('s'):
+        return int(interval_str[:-1])
+    elif interval_str.endswith('m'):
+        return int(interval_str[:-1]) * 60
+    elif interval_str.endswith('h'):
+        return int(interval_str[:-1]) * 3600
+    return int(interval_str)
+
 @app.command()
 def collect(config: str = "mountain.toml", data_root: str = "data"):
     """
@@ -68,6 +81,59 @@ def collect(config: str = "mountain.toml", data_root: str = "data"):
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     perform_capture(config_loader, weather_fetcher, data_root)
     print(f"[{datetime.now(UTC)}] Collection complete.")
+
+@app.command()
+def plan(
+    steps: List[str], 
+    config: str = "mountain.toml", 
+    data_root: str = "data"
+):
+    """
+    Processes a sequence of intervals. Saves state to remain durable across runs.
+    Accepts intervals (e.g., '10m', '1h') and a terminal 'stop' command.
+    """
+    state_path = Path(PLAN_STATE_FILE)
+    state = {"step_index": 0, "next_run": 0}
+    
+    if state_path.exists():
+        with open(state_path, "r") as f:
+            state = json.load(f)
+            
+    current_index = state["step_index"]
+    if current_index >= len(steps):
+        print("Plan already completed.")
+        return
+
+    now = time.time()
+    if now < state["next_run"]:
+        print(f"Waiting... Next run in {int(state['next_run'] - now)}s")
+        return
+
+    step = steps[current_index]
+    if step.lower() == "stop":
+        print("Plan 'stop' reached. Cleaning up...")
+        
+        # Self-unschedule
+        unschedule()
+        if state_path.exists(): state_path.unlink()
+        return
+
+    # Perform capture
+    config_loader = ConfigLoader(config)
+    weather_fetcher = WeatherFetcher(config_loader.metar_station)
+    success = perform_capture(config_loader, weather_fetcher, data_root)
+    
+    # Calculate next step
+    interval = parse_interval(step)
+    state["step_index"] += 1
+    state["next_run"] = now + interval
+    
+    # Create data dir if not exists
+    Path(data_root).mkdir(parents=True, exist_ok=True)
+    with open(state_path, "w") as f:
+        json.dump(state, f)
+    
+    print(f"Step {current_index + 1}/{len(steps)} complete. Next run at {datetime.fromtimestamp(state['next_run'], UTC)}")
 
 @app.command()
 def live(config: str = "mountain.toml", data_root: str = "data"):
@@ -96,19 +162,25 @@ def generate_calendar_plist(schedule: Dict[str, int]) -> str:
     return "\n".join(lines)
 
 @app.command()
-def schedule(config: str = "mountain.toml"):
-    """Installs the launchctl service for periodic collection."""
+def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = None):
+    """Installs the launchctl service. If plan_steps is provided, schedules the 'plan' command."""
     config_loader = ConfigLoader(config)
     current_dir = Path.cwd().absolute()
     executable = subprocess.check_output(["which", "uv"], text=True).strip()
     plist_path = Path.home() / "Library" / "LaunchAgents" / "com.mountain.collector.plist"
     
-    # Timing logic: prefer schedule (calendar-based) over interval
-    timing_config = ""
-    if config_loader.collection_schedule:
-        timing_config = generate_calendar_plist(config_loader.collection_schedule)
+    args = [executable, "run", "collect"]
+    if plan_steps:
+        args += ["plan"] + list(plan_steps) + ["--config", str(current_dir / config)]
+        timing_config = "    <key>StartInterval</key>\n    <integer>60</integer>" # Check plan every minute
     else:
-        timing_config = f"    <key>StartInterval</key>\n    <integer>{config_loader.collection_seconds}</integer>"
+        args += ["collect", "--config", str(current_dir / config)]
+        if config_loader.collection_schedule:
+            timing_config = generate_calendar_plist(config_loader.collection_schedule)
+        else:
+            timing_config = f"    <key>StartInterval</key>\n    <integer>{config_loader.collection_seconds}</integer>"
+
+    args_xml = "\n".join([f"        <string>{a}</string>" for a in args])
 
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -118,12 +190,7 @@ def schedule(config: str = "mountain.toml"):
     <string>com.mountain.collector</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{executable}</string>
-        <string>run</string>
-        <string>collect</string>
-        <string>collect</string>
-        <string>--config</string>
-        <string>{current_dir / config}</string>
+{args_xml}
     </array>
 {timing_config}
     <key>StandardErrorPath</key>
@@ -139,7 +206,9 @@ def schedule(config: str = "mountain.toml"):
     subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     subprocess.run(["launchctl", "load", str(plist_path)])
     print(f"Service installed at {plist_path}.")
-    if config_loader.collection_schedule:
+    if plan_steps:
+        print(f"Plan mode enabled with {len(plan_steps)} steps.")
+    elif config_loader.collection_schedule:
         print(f"Schedule: {config_loader.collection_schedule}")
     else:
         print(f"Interval: {config_loader.collection_seconds}s")
