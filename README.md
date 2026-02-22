@@ -18,11 +18,10 @@ This system performs online learning using Parameter-Efficient Fine-Tuning (PEFT
 - Mac with Apple Silicon (for MPS acceleration).
 
 ### Setup
-1. Configure `mountain.toml` in the root directory for target mountain details and webcams.
-2. Configure `train/config.toml` for model settings, schedule, and collection intervals.
+1. Configure `mountain.toml` in the root directory for target mountain details, webcams, training parameters, and collection schedules.
 
 ### Commands
-All commands should be run from the `/train` directory:
+All commands should be run from the root directory:
 ```bash
 # Start a continuous live training loop with gradient accumulation
 uv run training live
@@ -31,10 +30,17 @@ uv run training live
 uv run training once
 
 # Single capture of all webcams and METAR data to /data (git-ignored)
-uv run collect
+uv run collect collect
 
-# Batch train on a local folder with /images and /metar subfolders
-uv run training batch --folder /path/to/data
+# Start a continuous collection loop in the foreground
+uv run collect live
+
+# Manage background collection service via launchctl
+uv run collect schedule     # Install and load
+uv run collect unschedule   # Unload and remove
+
+# Batch train on a local folder (recursively finds data from 'collect' output)
+uv run training batch data/20260222
 
 # Manage background training service via launchctl (periodic execution of 'once')
 uv run training schedule   # Install and load
@@ -42,12 +48,12 @@ uv run training unschedule # Unload and remove
 ```
 
 ### Command Details
-- **live**: Runs a continuous loop. It uses **gradient accumulation** in-memory to perform a training step after a configurable number of captures.
-- **once**: Performs a single capture of configured webcams and METAR data, runs a single training step on that batch, and then exits.
-- **batch**: Accepts a folder with `/images` and `/metar` subfolders and trains on all valid pairs.
-- **collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
-- **schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `schedule_seconds`) to run the `once` command.
-- **unschedule**: Unloads and removes the `launchctl` service.
+- **training live**: Runs a continuous loop. It uses **gradient accumulation** in-memory to perform a training step after a configurable number of captures.
+- **training once**: Performs a single capture of configured webcams and METAR data, runs a single training step on that batch, and then exits.
+- **training batch**: Recursively searches a folder for images and matches them with METAR data (supporting both flat and nested collector structures).
+- **collect collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
+- **collect schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `collection_seconds` or `schedule`) to run the `collect collect` command.
+- **collect unschedule**: Unloads and removes the `launchctl` service.
 
 ## Training Goals & Metrics
 The primary goal is to achieve a model capable of high-confidence mountain detection across varying weather and lighting conditions.
@@ -73,8 +79,7 @@ Before the model's predictions are considered "sufficient" to announce if the mo
 - **Zero-Disk Training:** Live frames from `OpenCV` are moved directly to MPS tensors, avoiding overhead and privacy concerns related to storing temporary image files during the live loop.
 
 ## Project Structure
-- `mountain.toml`: Target-specific configuration (coordinates, height, webcam links).
+- `mountain.toml`: Target-specific configuration (coordinates, height, webcam links, training, collection).
 - `train/`: Core training package (model, scheduler, utils).
 - `collect/`: Standalone collection package.
-- `train/config.toml`: General training and scheduling configuration.
 - `data/`: Local storage for `collect` outputs (ignored by git).

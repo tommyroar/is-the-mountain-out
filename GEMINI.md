@@ -8,7 +8,7 @@ This project implements an iterative, real-time image classification system to d
 - **Zero-Disk Training:** Live captures from webcams MUST be converted directly to PyTorch tensors and moved to the MPS device. Intermediate image files MUST NOT be saved to disk during the live training loop.
 - **Dual-Input Model:** The classification head MUST accept both vision features (768-dim) and a METAR weather vector (2-dim: visibility, ceiling).
 - **Persistence:** The model MUST save/load LoRA adapters and classifier weights to/from the `train/checkpoints` directory to support continuous online learning.
-- **Configuration:** Project configuration is split between `mountain.toml` (root) and `train/config.toml`.
+- **Configuration:** Project configuration is centralized in `mountain.toml` in the root directory.
 
 ## Build & Environment
 The project uses `uv` for dependency management from the root directory.
@@ -44,6 +44,5 @@ All commands should be executed from the **root project directory**:
 - `mountain.toml`: Target-specific configuration (coordinates, height, webcam links).
 - `train/`: Training package containing model logic, scheduler, and configuration.
 - `collect/`: Data collection package for capturing live webcam datasets.
-- `train/config.toml`: General training and scheduling configuration.
 - `data/`: Local storage for `collect` outputs (ignored by git).
 - `train/checkpoints`: Local storage for model weights (ignored by git).
