@@ -19,7 +19,7 @@ def test_trainer_initialization(mock_weather, mock_model_cls, mock_config):
     mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
     mock_model_cls.return_value = mock_model
     
-    trainer = Trainer('dummy_path.toml', 'dummy_mountain.toml')
+    trainer = Trainer('mountain.toml')
     
     assert mock_model_cls.called
     assert mock_weather.called
@@ -47,7 +47,7 @@ def test_run_single_cycle_execution(mock_weather_cls, mock_webcam):
             mock_weather.get_weather_vector.return_value = mock_weather_vector
             mock_weather_cls.return_value = mock_weather
             
-            trainer = Trainer('dummy_path.toml')
+            trainer = Trainer('mountain.toml')
             trainer.optimizer = MagicMock()
             
             mock_stream = MagicMock()
@@ -90,7 +90,7 @@ def test_live_training_loop_cycle(mock_sleep, mock_weather_cls, mock_webcam):
             mock_weather.get_weather_vector.return_value = mock_weather_vector
             mock_weather_cls.return_value = mock_weather
             
-            trainer = Trainer('dummy_path.toml')
+            trainer = Trainer('mountain.toml')
             trainer.optimizer = MagicMock()
             
             mock_stream = MagicMock()

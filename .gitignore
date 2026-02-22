@@ -206,3 +206,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 \n# Build artifacts\n*.egg-info/\nbuild/\ndist/\n__pycache__/\n*.pyc
+mapbox.key

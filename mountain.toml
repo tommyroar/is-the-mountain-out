@@ -6,14 +6,29 @@ latitude = 46.8523
 longitude = -121.7603
 
 [webcam]
-name = "UW Red Square"
-url = "https://www.washington.edu/cambots/camera1_l.jpg"
-description = "UW Red Square webcam looking towards Mount Rainier"
-latitude = 47.6553
-longitude = -122.3035
+name = "UW ATG Webcam 2"
+url = "https://atmos.uw.edu/data/images/webcam2_latest.jpg"
+description = "UW ATG building 7th floor webcam pointing southeast toward Mount Rainier"
+latitude = 47.6533
+longitude = -122.3091
 
 [weather]
 station_id = "KSEA"
 description = "Seattle-Tacoma International Airport"
 latitude = 47.4502
 longitude = -122.3088
+
+[training]
+schedule_seconds = 1800 # 30 minutes for training service
+capture_interval_seconds = 300 # 5 minutes between captures in 'live' loop
+gradient_accumulation_steps = 4 # Train after 4 captures
+checkpoint_dir = "train/checkpoints"
+
+[training.lora]
+rank = 8
+alpha = 16
+target_modules = ["fc1", "fc2"] # ConvNeXt Linear layers in MLP
+
+[collection]
+collection_seconds = 600 # 10 minutes for collection service (interval-based)
+# schedule = { Minute = 0 } # Optional: Run every hour on the hour (calendar-based)

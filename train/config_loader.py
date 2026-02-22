@@ -2,12 +2,9 @@ import tomli
 from typing import List, Dict, Any, Optional
 
 class ConfigLoader:
-    def __init__(self, config_path: str, target_toml_path: Optional[str] = None):
+    def __init__(self, config_path: str = "mountain.toml"):
         self.config_path = config_path
-        self.target_toml_path = target_toml_path
-        
-        self.config = self._load_toml_config(self.config_path)
-        self.target_data = self._load_toml_config(self.target_toml_path) if target_toml_path else {}
+        self.data = self._load_toml_config(self.config_path)
         
         self._validate_config()
 
@@ -17,47 +14,47 @@ class ConfigLoader:
 
     def _validate_config(self):
         # Basic config validation
-        required_keys = ['schedule_seconds', 'lora_settings', 'capture_interval_seconds', 'gradient_accumulation_steps', 'checkpoint_dir']
-        for key in required_keys:
-            if key not in self.config:
-                raise ValueError(f"Missing required config key: {key}")
+        required_sections = ['mountain', 'webcam', 'weather', 'training', 'collection']
+        for section in required_sections:
+            if section not in self.data:
+                raise ValueError(f"Missing required config section: {section}")
 
     @property
     def webcam_url(self) -> str:
-        # Prefer webcam from mountain TOML if available
-        if 'webcam' in self.target_data and 'url' in self.target_data['webcam']:
-            return self.target_data['webcam']['url']
-        # Fallback to first source in main config if it exists (legacy support)
-        sources = self.config.get('webcam_sources', [])
-        return sources[0] if sources else ""
+        return self.data['webcam'].get('url', "")
 
     @property
     def schedule_seconds(self) -> int:
-        return self.config['schedule_seconds']
+        return self.data['training'].get('schedule_seconds', 1800)
+
+    @property
+    def collection_seconds(self) -> int:
+        return self.data['collection'].get('collection_seconds', 600)
+
+    @property
+    def collection_schedule(self) -> Optional[Dict[str, int]]:
+        return self.data['collection'].get('schedule')
 
     @property
     def capture_interval_seconds(self) -> int:
-        return self.config['capture_interval_seconds']
+        return self.data['training'].get('capture_interval_seconds', 300)
 
     @property
     def gradient_accumulation_steps(self) -> int:
-        return self.config['gradient_accumulation_steps']
+        return self.data['training'].get('gradient_accumulation_steps', 4)
 
     @property
     def lora_settings(self) -> Dict[str, Any]:
-        return self.config['lora_settings']
+        return self.data['training'].get('lora', {})
 
     @property
     def checkpoint_dir(self) -> str:
-        return self.config['checkpoint_dir']
+        return self.data['training'].get('checkpoint_dir', "train/checkpoints")
 
     @property
     def metar_station(self) -> str:
-        # Prefer station from mountain TOML if available
-        if 'weather' in self.target_data and 'station_id' in self.target_data['weather']:
-            return self.target_data['weather']['station_id']
-        return self.config.get('metar_station', 'KSEA')
+        return self.data['weather'].get('station_id', 'KSEA')
 
     @property
     def mountain_data(self) -> Dict[str, Any]:
-        return self.target_data.get('mountain', {})
+        return self.data.get('mountain', {})
