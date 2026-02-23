@@ -22,19 +22,28 @@ def get_solar_events(lat: float, lon: float, start_date: date, days: int) -> Lis
         })
     return events
 
-def generate_collection_plan(lat: float, lon: float, current_time: datetime, target_count: int = 100, jitter_range: int = 300) -> List[str]:
+def generate_collection_plan(lat: float, lon: float, current_time: datetime, start_time: Optional[datetime] = None, target_count: int = 100, jitter_range: int = 300) -> List[str]:
     """
     Generates a plan targeting exactly target_count captures, focused on solar events.
     """
     intervals = []
-    last_event_time = current_time
+    
+    # If a future start time is specified, add an initial interval to reach it
+    effective_now = current_time
+    if start_time and start_time > current_time:
+        initial_delay = int((start_time - current_time).total_seconds())
+        intervals.append(f"{initial_delay}s")
+        effective_now = start_time
+        # We don't count the initial delay as a capture
+    
+    last_event_time = effective_now
     captured_so_far = 0
     day_offset = 0
     
     location = LocationInfo("Custom", "USA", "UTC", lat, lon)
 
     while captured_so_far < target_count:
-        day = current_time.date() + timedelta(days=day_offset)
+        day = effective_now.date() + timedelta(days=day_offset)
         s = sun(location.observer, date=day)
         
         # Events for the day: Sunrise and Sunset
@@ -92,7 +101,11 @@ if __name__ == "__main__":
     # Generate the full 100-step plan
     # Use UTC now for calculation
     now_utc = datetime.now(UTC)
-    plan_steps = generate_collection_plan(LAT, LON, now_utc, target_count=TARGET)
+    
+    # Target: 8am PT tomorrow (Monday, Feb 23) -> 16:00 UTC
+    target_start = datetime(2026, 2, 23, 16, 0, 0, tzinfo=UTC)
+    
+    plan_steps = generate_collection_plan(LAT, LON, now_utc, start_time=target_start, target_count=TARGET)
     
     # Calculate days based on total day_offset from the plan generation
     # (re-running generation or just moving the variable outside)
