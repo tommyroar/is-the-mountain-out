@@ -226,6 +226,18 @@ def plan(
         "percentage": percentage
     })
     
+    # Notifications for milestones
+    if progress == 1:
+        send_notification(
+            f"First capture of the plan successfully completed.",
+            title="🏔️ First Capture Complete"
+        )
+    elif progress in [int(total * 0.25), int(total * 0.50), int(total * 0.75)]:
+        send_notification(
+            f"Collection is {int(percentage)}% complete ({progress}/{total} captures).",
+            title="🏔️ Collection Progress"
+        )
+    
     # Calculate next step
     interval = parse_interval(step)
     state["step_index"] += 1
@@ -390,6 +402,12 @@ def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = No
     subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     subprocess.run(["launchctl", "load", str(plist_path)])
     print(f"Service installed at {plist_path}.")
+    
+    send_notification(
+        f"Background collection service has been scheduled and is now active.",
+        title="🏔️ Collection Scheduled"
+    )
+    
     if plan_steps:
         print(f"Plan mode enabled with {len(plan_steps)} steps.")
     elif config_loader.collection_schedule:
