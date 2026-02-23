@@ -131,7 +131,7 @@ def plan(
     Accepts intervals (e.g., '10m', '1h') and a terminal 'stop' command.
     """
     state_path = Path(PLAN_STATE_FILE)
-    state = {"step_index": 0, "next_run": 0, "last_process_start": 0}
+    state = {"step_index": 0, "next_run": 0}
     
     if state_path.exists():
         with open(state_path, "r") as f:
@@ -145,19 +145,8 @@ def plan(
         return
 
     now = time.time()
-    
-    # If the process just started and the next run is far away (>10m), 
-    # run a HEARTBEAT capture to validate the service is alive.
-    if state.get("last_process_start", 0) < (now - 60): # Basic check for new process run
-        state["last_process_start"] = now
-        if now < state["next_run"] and (state["next_run"] - now) > 600:
-            print("Performing startup heartbeat capture...")
-            _collect_internal(config=config, data_root=data_root, step_info={"type": "HEARTBEAT"})
-
     if now < state["next_run"]:
         print(f"Waiting... Next run in {int(state['next_run'] - now)}s")
-        # Save process start time even if we wait
-        with open(state_path, "w") as f: json.dump(state, f)
         return
 
     step = steps[current_index]
@@ -172,9 +161,7 @@ def plan(
 
     # Perform capture with logging info
     step_info = {"step_index": current_index + 1, "total_steps": len(steps), "type": "PLAN_STEP"}
-    config_loader = ConfigLoader(config)
-    weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    success = perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
+    _collect_internal(config=config, data_root=data_root, step_info=step_info)
     
     # Calculate next step
     interval = parse_interval(step)
@@ -217,15 +204,6 @@ def generate_calendar_plist(schedule: Dict[str, int]) -> str:
 @app.command()
 def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = None):
     """Installs the launchctl service. If plan_steps is provided, schedules the 'plan' command."""
-    
-    # Immediate validation run
-    print("Performing immediate validation capture...")
-    try:
-        _collect_internal(config=config, step_info={"type": "INITIAL_VALIDATION"})
-    except Exception as e:
-        print(f"Validation failed: {e}. Aborting schedule.")
-        raise typer.Exit(code=1)
-
     config_loader = ConfigLoader(config)
     current_dir = Path.cwd().absolute()
     executable = subprocess.check_output(["which", "uv"], text=True).strip()
