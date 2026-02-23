@@ -18,20 +18,17 @@ def generate_map():
     
     # Using custom URL markers to render high-quality actual emojis
     # 🏔️ (Mountain), 🎥 (Webcam), 🛬 (METAR)
-    # Mapbox requires the custom marker URLs to be double-percent-encoded.
-    def get_emoji_marker(emoji, color_hex, lon, lat):
+    # Using 72x72 Twemoji assets to reduce size by ~50% (from 160x160)
+    def get_emoji_marker(hex_code, lon, lat):
         import urllib.parse
-        # Double encode the emoji character so it survives the Mapbox URL parsing
-        encoded_emoji = urllib.parse.quote(emoji)
-        emoji_url = f"https://emojicdn.elk.sh/{encoded_emoji}"
-        # Final encoding for the Mapbox Static API overlay part
+        emoji_url = f"https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/{hex_code}.png"
         encoded_url = urllib.parse.quote(emoji_url, safe='')
         return f"url-{encoded_url}({lon},{lat})"
 
     markers = [
-        get_emoji_marker("🏔️", "f44336", mtn['longitude'], mtn['latitude']),
-        get_emoji_marker("🎥", "2196f3", cam['longitude'], cam['latitude']),
-        get_emoji_marker("🛬", "4caf50", weather['longitude'], weather['latitude'])
+        get_emoji_marker("1f3d4", mtn['longitude'], mtn['latitude']), # 🏔️
+        get_emoji_marker("1f3a5", cam['longitude'], cam['latitude']), # 🎥
+        get_emoji_marker("1f6ec", weather['longitude'], weather['latitude']) # 🛬
     ]
     
     overlay = ",".join(markers)
