@@ -15,6 +15,29 @@ app = typer.Typer()
 
 PLAN_STATE_FILE = "data/plan_state.json"
 COLLECTION_LOG = "data/collection.log"
+NTFY_KEY_FILE = "ntfy.key"
+
+def send_notification(message: str, title: Optional[str] = None, priority: str = "default"):
+    """Sends a push notification via ntfy.sh using the private topic in ntfy.key."""
+    key_path = Path(NTFY_KEY_FILE)
+    if not key_path.exists():
+        return
+
+    with open(key_path, "r") as f:
+        topic = f.read().strip()
+    
+    if not topic:
+        return
+
+    url = f"https://ntfy.sh/{topic}"
+    headers = {"Priority": priority}
+    if title:
+        headers["Title"] = title
+    
+    try:
+        requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=5)
+    except Exception as e:
+        print(f"Failed to send notification: {e}")
 
 def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
     """Writes a structured JSON log entry."""
@@ -148,6 +171,10 @@ def plan(
             state = json.load(f)
     else:
         log_event("PLAN", "START", {"total_steps": len(steps)})
+        send_notification(
+            f"Starting new collection plan with {len(steps)} steps.",
+            title="🏔️ Collection Started"
+        )
             
     current_index = state["step_index"]
     if current_index >= len(steps):
@@ -163,6 +190,11 @@ def plan(
     if step.lower() == "stop":
         print("Plan 'stop' reached. Cleaning up...")
         log_event("PLAN", "STOP", {"completed_steps": current_index})
+        send_notification(
+            f"✅ Collection plan complete! {current_index} steps processed.",
+            title="🏔️ Collection Finished",
+            priority="high"
+        )
         
         # Self-unschedule
         unschedule()
@@ -177,6 +209,13 @@ def plan(
     interval = parse_interval(step)
     state["step_index"] += 1
     state["next_run"] = now + interval
+    
+    # Send periodic progress updates (every 10 steps)
+    if state["step_index"] % 10 == 0:
+        send_notification(
+            f"Progress: {state['step_index']}/{len(steps)} captures complete.",
+            title="🏔️ Collection Update"
+        )
     
     # Create data dir if not exists
     Path(data_root).mkdir(parents=True, exist_ok=True)
