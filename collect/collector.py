@@ -18,13 +18,14 @@ COLLECTION_LOG = "data/collection.log"
 NTFY_KEY_FILE = "ntfy.key"
 
 def send_notification(message: str, title: Optional[str] = None, priority: str = "default"):
-    """Sends a push notification via ntfy.sh using the private topic in ntfy.key."""
-    key_path = Path(NTFY_KEY_FILE)
-    if not key_path.exists():
-        return
-
-    with open(key_path, "r") as f:
-        topic = f.read().strip()
+    """Sends a push notification via ntfy.sh using the topic from environment or ntfy.key."""
+    topic = os.environ.get("NTFY_TOPIC")
+    
+    if not topic:
+        key_path = Path(NTFY_KEY_FILE)
+        if key_path.exists():
+            with open(key_path, "r") as f:
+                topic = f.read().strip()
     
     if not topic:
         return
@@ -37,7 +38,7 @@ def send_notification(message: str, title: Optional[str] = None, priority: str =
     try:
         requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=5)
     except Exception as e:
-        print(f"Failed to send notification: {e}")
+        log_event("NOTIFICATION", "ERROR", {"reason": str(e), "message": message})
 
 def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
     """Writes a structured JSON log entry."""
@@ -170,6 +171,11 @@ def plan(
         with open(state_path, "r") as f:
             state = json.load(f)
     else:
+        # On first start, ensure topic is in environment for send_notification
+        if not os.environ.get("NTFY_TOPIC") and Path(NTFY_KEY_FILE).exists():
+            with open(NTFY_KEY_FILE, "r") as f:
+                os.environ["NTFY_TOPIC"] = f.read().strip()
+
         log_event("PLAN", "START", {"total_steps": len(steps)})
         send_notification(
             f"Starting new collection plan with {len(steps)} steps.",
@@ -333,12 +339,24 @@ def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = No
 
     args_xml = "\n".join([f"        <string>{a}</string>" for a in args])
 
+    # Stash secret in EnvironmentVariables to avoid repeated file reads
+    env_vars = ""
+    if Path(NTFY_KEY_FILE).exists():
+        with open(NTFY_KEY_FILE, "r") as f:
+            topic = f.read().strip()
+            env_vars = f"""    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NTFY_TOPIC</key>
+        <string>{topic}</string>
+    </dict>"""
+
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.mountain.collector</string>
+{env_vars}
     <key>ProgramArguments</key>
     <array>
 {args_xml}
