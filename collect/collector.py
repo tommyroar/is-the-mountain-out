@@ -51,13 +51,23 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     # Fetch and save METAR
     metar_text = weather_fetcher.fetch_latest_metar()
     metar_success = False
+    metar_path = metar_dir / "metar.txt"
     if metar_text:
-        with open(metar_dir / "metar.txt", "w") as f:
+        with open(metar_path, "w") as f:
             f.write(metar_text)
         print("  METAR data saved.")
         metar_success = True
+        log_event("METAR", "SUCCESS", {
+            "station_id": weather_fetcher.station_id,
+            "metar_path": str(metar_path),
+            **(step_info or {})
+        })
     else:
         print("  Warning: METAR capture failed.")
+        log_event("METAR", "FAILURE", {
+            "station_id": weather_fetcher.station_id,
+            **(step_info or {})
+        })
     
     # Capture and save image
     source = config_loader.webcam_url
@@ -209,7 +219,11 @@ def log(follow: bool = True):
                 status = j.get("status", "")
                 meta = j.get("metadata", {})
                 step = f"Step {meta.get('step_index')}/{meta.get('total_steps')}" if "step_index" in meta else ""
-                msg = f"[{ts}] {event:<8} | {status:<8} | {step:<12} | {meta.get('image_path', '')}"
+                
+                path = meta.get('image_path') or meta.get('metar_path') or ""
+                extra = f"[{meta.get('station_id')}]" if "station_id" in meta else ""
+                
+                msg = f"[{ts}] {event:<8} | {status:<8} | {step:<12} | {extra:<8} {path}"
                 print(msg)
             except:
                 print(line.strip())
