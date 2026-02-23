@@ -5,22 +5,14 @@ import io
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-# Precise Web Mercator for Mapbox @2x (512px tiles)
-def lat_lon_to_pixel(lat, lon, center_lat, center_lon, zoom, img_w, img_h):
-    world_size = 512 * (2 ** zoom)
-    
-    def x_from_lon(l):
-        return (l + 180) * (world_size / 360)
-    
-    def y_from_lat(l):
-        r = math.radians(l)
-        # Note: top is 0, bottom is world_size
-        return (1 - (math.log(math.tan(r) + 1/math.cos(r)) / math.pi)) / 2 * world_size
-
-    cx, cy = x_from_lon(center_lon), y_from_lat(center_lat)
-    tx, ty = x_from_lon(lon), y_from_lat(lat)
-    
-    return (tx - cx) + (img_w / 2), (ty - cy) + (img_h / 2)
+# Precise Web Mercator Projection
+# World size at Zoom 0 is 256. At @2x Zoom Z, it is 512 * 2^Z.
+def project(lat, lon, zoom):
+    scale = 512 * (2 ** zoom)
+    x = (lon + 180) * (scale / 360)
+    lat_rad = math.radians(lat)
+    y = (scale / (2 * math.pi)) * (math.pi - math.log(math.tan(math.pi / 4 + lat_rad / 2)))
+    return x, y
 
 def draw_callout(img, px, py, emoji_hex, title, subtitle, font_bold, font_small):
     draw = ImageDraw.Draw(img)
@@ -40,7 +32,7 @@ def draw_callout(img, px, py, emoji_hex, title, subtitle, font_bold, font_small)
     
     bx, by = int(px - box_w / 2), int(py - box_h - 45)
     
-    # 3. Combined Shadow Layer
+    # 3. Unified Shadow Layer
     shadow_img = Image.new("RGBA", img.size, (0, 0, 0, 0))
     s_draw = ImageDraw.Draw(shadow_img)
     off = 8
@@ -74,20 +66,23 @@ def generate_map():
         {"name": "KSEA METAR", "lat": weather['latitude'], "lon": weather['longitude'], "hex": "1f6ec"}
     ]
 
-    # Calculate geographic center of ALL points
-    all_lats = [t['lat'] for t in targets]
-    all_lons = [t['lon'] for t in targets]
-    avg_lat, avg_lon = sum(all_lats)/3, sum(all_lons)/3
+    zoom = 8
+    
+    # Calculate visual center in Mercator space
+    world_coords = [project(t['lat'], t['lon'], zoom) for t in targets]
+    avg_world_x = sum(c[0] for c in world_coords) / len(world_coords)
+    avg_world_y = sum(c[1] for c in world_coords) / len(world_coords)
+    
+    # Convert Mercator center back to Lat/Lon for the Mapbox URL
+    world_size = 512 * (2 ** zoom)
+    center_lon = (avg_world_x / world_size * 360) - 180
+    center_lat = math.degrees(2 * math.atan(math.exp(math.pi * (1 - 2 * avg_world_y / world_size))) - math.pi / 2)
 
-    width, height, zoom = 1000, 800, 8
-    print(f"Requesting Mapbox base (Zoom {zoom}). center={avg_lat},{avg_lon}")
+    width, height = 1000, 800
+    print(f"Requesting map background (Zoom {zoom})...")
     
-    # URL including markers so we can verify positions visually (they'll be under the callouts)
-    markers_url = f"pin-s-m+f44336({mtn['longitude']},{mtn['latitude']}),pin-s-c+2196f3({cam['longitude']},{cam['latitude']}),pin-s-w+4caf50({weather['longitude']},{weather['latitude']})"
-    url = f"https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/{markers_url}/{avg_lon},{avg_lat},{zoom}/{width}x{height}@2x?access_token={token}"
-    
+    url = f"https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/{center_lon},{center_lat},{zoom}/{width}x{height}@2x?access_token={token}"
     res = requests.get(url, headers={"Referer": "https://tommyroar.github.io"})
-    if res.status_code != 200: return print(f"Error: {res.status_code}")
     
     img = Image.open(io.BytesIO(res.content)).convert("RGBA")
     
@@ -96,8 +91,12 @@ def generate_map():
         font_s = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 22)
     except: font_b = font_s = ImageFont.load_default()
 
+    # Place callouts using same projection
     for t in targets:
-        px, py = lat_lon_to_pixel(t['lat'], t['lon'], avg_lat, avg_lon, zoom, width*2, height*2)
+        tx, ty = project(t['lat'], t['lon'], zoom)
+        # Pixel coordinates relative to the calculated world center
+        px = (tx - avg_world_x) + (width) # width*2/2
+        py = (ty - avg_world_y) + (height) # height*2/2
         draw_callout(img, px, py, t['hex'], t['name'], f"{t['lat']:.4f}, {t['lon']:.4f}", font_b, font_s)
 
     Path("assets").mkdir(exist_ok=True)
