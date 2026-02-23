@@ -16,26 +16,34 @@ def generate_map():
     cam = config['webcam']
     weather = config['weather']
     
-    # Marker colors: Rainier (Red), Webcam (Blue), Weather (Green)
-    # Using Maki icons as reliable high-quality substitutes for the requested emojis
-    # mountain -> 🏔️, cinema -> 🎥, airport -> 🛬
+    # Using custom URL markers to render high-quality actual emojis
+    # 🏔️ (Mountain), 🎥 (Webcam), 🛬 (METAR)
+    # Mapbox requires the custom marker URLs to be double-percent-encoded.
+    def get_emoji_marker(emoji, color_hex, lon, lat):
+        import urllib.parse
+        # Double encode the emoji character so it survives the Mapbox URL parsing
+        encoded_emoji = urllib.parse.quote(emoji)
+        emoji_url = f"https://emojicdn.elk.sh/{encoded_emoji}"
+        # Final encoding for the Mapbox Static API overlay part
+        encoded_url = urllib.parse.quote(emoji_url, safe='')
+        return f"url-{encoded_url}({lon},{lat})"
+
     markers = [
-        f"pin-s-mountain+f44336({mtn['longitude']},{mtn['latitude']})",
-        f"pin-s-cinema+2196f3({cam['longitude']},{cam['latitude']})",
-        f"pin-s-airport+4caf50({weather['longitude']},{weather['latitude']})"
+        get_emoji_marker("🏔️", "f44336", mtn['longitude'], mtn['latitude']),
+        get_emoji_marker("🎥", "2196f3", cam['longitude'], cam['latitude']),
+        get_emoji_marker("🛬", "4caf50", weather['longitude'], weather['latitude'])
     ]
     
     overlay = ",".join(markers)
     style = "mapbox/outdoors-v12"
     width, height = 800, 600
     
-    # Calculate bounds to add padding (Mapbox 'auto' is often too tight)
-    # Center is approximately halfway between the furthest points
+    # Calculate center between the two most distant points
     avg_lon = (mtn['longitude'] + cam['longitude']) / 2
     avg_lat = (mtn['latitude'] + cam['latitude']) / 2
     
-    # Zoom 8.5 provides a good balance for the Puget Sound region coverage
-    zoom = 8.5
+    # Target zoom level
+    zoom = 8
     
     url = f"https://api.mapbox.com/styles/v1/{style}/static/{overlay}/{avg_lon},{avg_lat},{zoom}/{width}x{height}@2x?access_token={token}"
     
