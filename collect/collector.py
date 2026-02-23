@@ -211,6 +211,16 @@ def plan(
     step_info = {"step_index": current_index + 1, "total_steps": len(steps), "type": "PLAN_STEP"}
     _collect_internal(config=config, data_root=data_root, step_info=step_info)
     
+    # Log detailed progress status
+    progress = current_index + 1
+    total = len(steps)
+    percentage = round((progress / total) * 100, 1)
+    log_event("PROGRESS", "STATUS", {
+        "progress": progress,
+        "total": total,
+        "percentage": percentage
+    })
+    
     # Calculate next step
     interval = parse_interval(step)
     state["step_index"] += 1
