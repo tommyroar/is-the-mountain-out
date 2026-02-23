@@ -177,7 +177,12 @@ def plan(
             state = json.load(f)
     else:
         # Initialize new plan: First step is always a delay before the first action
+        if not os.environ.get("NTFY_TOPIC") and Path(NTFY_KEY_FILE).exists():
+            with open(NTFY_KEY_FILE, "r") as f:
+                os.environ["NTFY_TOPIC"] = f.read().strip()
+
         log_event("PLAN", "START", {"total_steps": len(steps)})
+        
         interval = parse_interval(steps[0])
         state = {
             "step_index": 0, 
@@ -396,6 +401,11 @@ def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = No
     subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     subprocess.run(["launchctl", "load", str(plist_path)])
     print(f"Service installed at {plist_path}.")
+    
+    send_notification(
+        f"Background collection service has been scheduled and is now active.",
+        title="🏔️ Collection Scheduled"
+    )
     
     if plan_steps:
         print(f"Plan mode enabled with {len(plan_steps)} steps.")
