@@ -3,6 +3,7 @@ import typer
 import os
 import subprocess
 import json
+import requests
 from pathlib import Path
 from datetime import datetime, UTC, timedelta
 import cv2
@@ -33,9 +34,12 @@ def send_notification(message: str, title: Optional[str] = None, priority: str =
     url = f"https://ntfy.sh/{topic}"
     headers = {"Priority": priority}
     if title:
-        headers["Title"] = title
+        # URL encode the title to avoid header encoding errors with emojis
+        import urllib.parse
+        headers["Title"] = urllib.parse.quote(title)
     
     try:
+        # Send raw message bytes to ntfy
         requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=5)
     except Exception as e:
         log_event("NOTIFICATION", "ERROR", {"reason": str(e), "message": message})
