@@ -5,7 +5,7 @@ Determine if Mount Rainier is "out" (visible) using real-time image classificati
 This system performs online learning using Parameter-Efficient Fine-Tuning (PEFT) with LoRA on a `convnext_tiny` vision backbone. It integrates METAR weather data as a secondary input to the classification head, improving the model's accuracy by incorporating real-world visibility and ceiling data.
 
 ![Mount Rainier Topo Map](assets/map.png)
-*Map showing Mount Rainier (🏔️), UW ATG Webcam (🎥), and KSEA METAR Station (🛬).*
+*Map showing Mount Rainier (M), UW ATG Webcam (C), and KSEA METAR Station (W).*
 
 ## Features
 - **Hardware-Accelerated Training:** Fully optimized for Mac M1/M2/M3 using Metal Performance Shaders (MPS).
