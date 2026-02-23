@@ -176,6 +176,64 @@ def plan(
     print(f"Step {current_index + 1}/{len(steps)} complete. Next run at {datetime.fromtimestamp(state['next_run'], UTC)}")
 
 @app.command()
+def log(follow: bool = True):
+    """
+    Tails the collection log and shows service status.
+    """
+    # Check service status
+    try:
+        status_output = subprocess.check_output(["launchctl", "list"], text=True)
+        is_running = "com.mountain.collector" in status_output
+        if is_running:
+            print("🟢 Service 'com.mountain.collector' is ACTIVE.")
+        else:
+            print("⚪ Service 'com.mountain.collector' is NOT RUNNING (unscheduled).")
+    except:
+        print("❓ Could not determine service status.")
+
+    log_path = Path(COLLECTION_LOG)
+    if not log_path.exists():
+        print(f"No log file found at {COLLECTION_LOG}")
+        return
+
+    print(f"\nLast 10 entries from {COLLECTION_LOG}:")
+    print("-" * 80)
+    
+    # Simple tail logic
+    def print_logs(lines):
+        for line in lines:
+            try:
+                j = json.loads(line.strip())
+                ts = j.get("timestamp", "").split(".")[0].replace("T", " ")
+                event = j.get("event", "UNKNOWN")
+                status = j.get("status", "")
+                meta = j.get("metadata", {})
+                step = f"Step {meta.get('step_index')}/{meta.get('total_steps')}" if "step_index" in meta else ""
+                msg = f"[{ts}] {event:<8} | {status:<8} | {step:<12} | {meta.get('image_path', '')}"
+                print(msg)
+            except:
+                print(line.strip())
+
+    # Initial tail
+    with open(log_path, "r") as f:
+        lines = f.readlines()
+        print_logs(lines[-10:])
+
+    if follow:
+        print("\n--- Following log (Ctrl+C to stop) ---")
+        try:
+            with open(log_path, "r") as f:
+                f.seek(0, 2)
+                while True:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(1)
+                        continue
+                    print_logs([line])
+        except KeyboardInterrupt:
+            print("\nStopped tailing.")
+
+@app.command()
 def live(config: str = "mountain.toml", data_root: str = "data"):
     """
     Runs continuous collection in the foreground using the configured interval.
