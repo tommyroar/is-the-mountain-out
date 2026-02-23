@@ -34,9 +34,10 @@ def send_notification(message: str, title: Optional[str] = None, priority: str =
     url = f"https://ntfy.sh/{topic}"
     headers = {"Priority": priority}
     if title:
-        # URL encode the title to avoid header encoding errors with emojis
-        import urllib.parse
-        headers["Title"] = urllib.parse.quote(title)
+        # Use RFC 2047 encoding for the title to support emojis in HTTP headers
+        import base64
+        encoded_title = base64.b64encode(title.encode('utf-8')).decode('utf-8')
+        headers["Title"] = f"=?utf-8?B?{encoded_title}?="
     
     try:
         # Send raw message bytes to ntfy
@@ -169,13 +170,13 @@ def plan(
     Accepts intervals (e.g., '10m', '1h') and a terminal 'stop' command.
     """
     state_path = Path(PLAN_STATE_FILE)
-    state = {"step_index": 0, "next_run": 0}
+    now = time.time()
     
     if state_path.exists():
         with open(state_path, "r") as f:
             state = json.load(f)
     else:
-        # On first start, ensure topic is in environment for send_notification
+        # Initialize new plan: First step is always a delay before the first action
         if not os.environ.get("NTFY_TOPIC") and Path(NTFY_KEY_FILE).exists():
             with open(NTFY_KEY_FILE, "r") as f:
                 os.environ["NTFY_TOPIC"] = f.read().strip()
@@ -185,13 +186,22 @@ def plan(
             f"Starting new collection plan with {len(steps)} steps.",
             title="🏔️ Collection Started"
         )
+        
+        interval = parse_interval(steps[0])
+        state = {
+            "step_index": 0, 
+            "next_run": now + interval
+        }
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+        print(f"Plan initialized. First capture in {interval}s.")
+        return
             
     current_index = state["step_index"]
     if current_index >= len(steps):
         print("Plan already completed.")
         return
 
-    now = time.time()
     if now < state["next_run"]:
         print(f"Waiting... Next run in {int(state['next_run'] - now)}s")
         return
@@ -225,10 +235,23 @@ def plan(
         "percentage": percentage
     })
     
+    # Notifications for milestones
+    if progress == 1:
+        send_notification(
+            f"First capture of the plan successfully completed.",
+            title="🏔️ First Capture Complete"
+        )
+    elif progress in [int(total * 0.25), int(total * 0.50), int(total * 0.75)]:
+        send_notification(
+            f"Collection is {int(percentage)}% complete ({progress}/{total} captures).",
+            title="🏔️ Collection Progress"
+        )
+    
     # Calculate next step
-    interval = parse_interval(step)
     state["step_index"] += 1
-    state["next_run"] = now + interval
+    if state["step_index"] < len(steps):
+        next_interval = parse_interval(steps[state["step_index"]])
+        state["next_run"] = now + next_interval
     
     # Send periodic progress updates (every 10 steps)
     if state["step_index"] % 10 == 0:
@@ -389,6 +412,12 @@ def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = No
     subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     subprocess.run(["launchctl", "load", str(plist_path)])
     print(f"Service installed at {plist_path}.")
+    
+    send_notification(
+        f"Background collection service has been scheduled and is now active.",
+        title="🏔️ Collection Scheduled"
+    )
+    
     if plan_steps:
         print(f"Plan mode enabled with {len(plan_steps)} steps.")
     elif config_loader.collection_schedule:
