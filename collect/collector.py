@@ -15,6 +15,30 @@ app = typer.Typer()
 
 PLAN_STATE_FILE = "data/plan_state.json"
 COLLECTION_LOG = "data/collection.log"
+NTFY_KEY_FILE = "ntfy.key"
+
+def send_notification(message: str, title: Optional[str] = None, priority: str = "default"):
+    """Sends a push notification via ntfy.sh using the topic from environment or ntfy.key."""
+    topic = os.environ.get("NTFY_TOPIC")
+    
+    if not topic:
+        key_path = Path(NTFY_KEY_FILE)
+        if key_path.exists():
+            with open(key_path, "r") as f:
+                topic = f.read().strip()
+    
+    if not topic:
+        return
+
+    url = f"https://ntfy.sh/{topic}"
+    headers = {"Priority": priority}
+    if title:
+        headers["Title"] = title
+    
+    try:
+        requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=5)
+    except Exception as e:
+        log_event("NOTIFICATION", "ERROR", {"reason": str(e), "message": message})
 
 def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
     """Writes a structured JSON log entry."""
@@ -147,7 +171,16 @@ def plan(
         with open(state_path, "r") as f:
             state = json.load(f)
     else:
+        # On first start, ensure topic is in environment for send_notification
+        if not os.environ.get("NTFY_TOPIC") and Path(NTFY_KEY_FILE).exists():
+            with open(NTFY_KEY_FILE, "r") as f:
+                os.environ["NTFY_TOPIC"] = f.read().strip()
+
         log_event("PLAN", "START", {"total_steps": len(steps)})
+        send_notification(
+            f"Starting new collection plan with {len(steps)} steps.",
+            title="🏔️ Collection Started"
+        )
             
     current_index = state["step_index"]
     if current_index >= len(steps):
@@ -163,6 +196,11 @@ def plan(
     if step.lower() == "stop":
         print("Plan 'stop' reached. Cleaning up...")
         log_event("PLAN", "STOP", {"completed_steps": current_index})
+        send_notification(
+            f"✅ Collection plan complete! {current_index} steps processed.",
+            title="🏔️ Collection Finished",
+            priority="high"
+        )
         
         # Self-unschedule
         unschedule()
@@ -177,6 +215,13 @@ def plan(
     interval = parse_interval(step)
     state["step_index"] += 1
     state["next_run"] = now + interval
+    
+    # Send periodic progress updates (every 10 steps)
+    if state["step_index"] % 10 == 0:
+        send_notification(
+            f"Progress: {state['step_index']}/{len(steps)} captures complete.",
+            title="🏔️ Collection Update"
+        )
     
     # Create data dir if not exists
     Path(data_root).mkdir(parents=True, exist_ok=True)
@@ -294,12 +339,24 @@ def schedule(config: str = "mountain.toml", plan_steps: Optional[List[str]] = No
 
     args_xml = "\n".join([f"        <string>{a}</string>" for a in args])
 
+    # Stash secret in EnvironmentVariables to avoid repeated file reads
+    env_vars = ""
+    if Path(NTFY_KEY_FILE).exists():
+        with open(NTFY_KEY_FILE, "r") as f:
+            topic = f.read().strip()
+            env_vars = f"""    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NTFY_TOPIC</key>
+        <string>{topic}</string>
+    </dict>"""
+
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.mountain.collector</string>
+{env_vars}
     <key>ProgramArguments</key>
     <array>
 {args_xml}
