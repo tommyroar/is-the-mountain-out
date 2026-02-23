@@ -182,6 +182,10 @@ def plan(
                 os.environ["NTFY_TOPIC"] = f.read().strip()
 
         log_event("PLAN", "START", {"total_steps": len(steps)})
+        send_notification(
+            f"Starting new collection plan with {len(steps)} steps.",
+            title="🏔️ Collection Started"
+        )
         
         interval = parse_interval(steps[0])
         state = {
@@ -248,6 +252,13 @@ def plan(
     if state["step_index"] < len(steps):
         next_interval = parse_interval(steps[state["step_index"]])
         state["next_run"] = now + next_interval
+    
+    # Send periodic progress updates (every 10 steps)
+    if state["step_index"] % 10 == 0:
+        send_notification(
+            f"Progress: {state['step_index']}/{len(steps)} captures complete.",
+            title="🏔️ Collection Update"
+        )
     
     # Create data dir if not exists
     Path(data_root).mkdir(parents=True, exist_ok=True)
