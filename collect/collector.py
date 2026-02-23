@@ -34,9 +34,10 @@ def send_notification(message: str, title: Optional[str] = None, priority: str =
     url = f"https://ntfy.sh/{topic}"
     headers = {"Priority": priority}
     if title:
-        # URL encode the title to avoid header encoding errors with emojis
-        import urllib.parse
-        headers["Title"] = urllib.parse.quote(title)
+        # Use RFC 2047 encoding for the title to support emojis in HTTP headers
+        import base64
+        encoded_title = base64.b64encode(title.encode('utf-8')).decode('utf-8')
+        headers["Title"] = f"=?utf-8?B?{encoded_title}?="
     
     try:
         # Send raw message bytes to ntfy
