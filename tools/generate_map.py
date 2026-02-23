@@ -34,8 +34,8 @@ def generate_map():
     avg_lon = (mtn['longitude'] + cam['longitude']) / 2
     avg_lat = (mtn['latitude'] + cam['latitude']) / 2
     
-    # Zoom 8.5 provides a good balance for the Puget Sound region coverage
-    zoom = 8.5
+    # Zoom 8 provides a better balance for the Puget Sound region coverage
+    zoom = 8
     
     url = f"https://api.mapbox.com/styles/v1/{style}/static/{overlay}/{avg_lon},{avg_lat},{zoom}/{width}x{height}@2x?access_token={token}"
     
