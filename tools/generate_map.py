@@ -17,20 +17,29 @@ def generate_map():
     weather = config['weather']
     
     # Marker colors: Rainier (Red), Webcam (Blue), Weather (Green)
-    # Format: pin-s-{label}+{color}({lon},{lat})
+    # Using Maki icons as reliable high-quality substitutes for the requested emojis
+    # mountain -> 🏔️, cinema -> 🎥, airport -> 🛬
     markers = [
-        f"pin-s-m+f44336({mtn['longitude']},{mtn['latitude']})",
-        f"pin-s-c+2196f3({cam['longitude']},{cam['latitude']})",
-        f"pin-s-w+4caf50({weather['longitude']},{weather['latitude']})"
+        f"pin-s-mountain+f44336({mtn['longitude']},{mtn['latitude']})",
+        f"pin-s-cinema+2196f3({cam['longitude']},{cam['latitude']})",
+        f"pin-s-airport+4caf50({weather['longitude']},{weather['latitude']})"
     ]
     
     overlay = ",".join(markers)
     style = "mapbox/outdoors-v12"
     width, height = 800, 600
     
-    url = f"https://api.mapbox.com/styles/v1/{style}/static/{overlay}/auto/{width}x{height}@2x?access_token={token}"
+    # Calculate bounds to add padding (Mapbox 'auto' is often too tight)
+    # Center is approximately halfway between the furthest points
+    avg_lon = (mtn['longitude'] + cam['longitude']) / 2
+    avg_lat = (mtn['latitude'] + cam['latitude']) / 2
     
-    print(f"Requesting map from Mapbox...")
+    # Zoom 8.5 provides a good balance for the Puget Sound region coverage
+    zoom = 8.5
+    
+    url = f"https://api.mapbox.com/styles/v1/{style}/static/{overlay}/{avg_lon},{avg_lat},{zoom}/{width}x{height}@2x?access_token={token}"
+    
+    print(f"Requesting map from Mapbox (Zoom: {zoom})...")
     headers = {"Referer": "https://tommyroar.github.io"}
     response = requests.get(url, headers=headers)
     
