@@ -4,6 +4,7 @@ import os
 import subprocess
 import json
 import requests
+import signal
 from pathlib import Path
 from datetime import datetime, UTC, timedelta
 import cv2
@@ -13,10 +14,13 @@ from train.config_loader import ConfigLoader
 from train.utils import WebcamStream, WeatherFetcher
 
 app = typer.Typer()
+notebook_app = typer.Typer()
+app.add_typer(notebook_app, name="notebook", help="Manage the interactive capture browser notebook.")
 
 PLAN_STATE_FILE = "data/plan_state.json"
 COLLECTION_LOG = "data/collection.log"
 NTFY_KEY_FILE = "ntfy.key"
+NOTEBOOK_PID_FILE = "data/notebook.pid"
 
 def send_notification(message: str, title: Optional[str] = None, priority: str = "default"):
     """Sends a push notification via ntfy.sh using the topic from environment or ntfy.key."""
@@ -345,6 +349,58 @@ def live(config: str = "mountain.toml", data_root: str = "data"):
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\nStopping live collection.")
+
+@notebook_app.command("start")
+def notebook_start(port: int = 8888):
+    """Starts the Jupyter Notebook server for the capture browser."""
+    pid_path = Path(NOTEBOOK_PID_FILE)
+    if pid_path.exists():
+        print(f"Notebook server may already be running (PID file exists at {pid_path}).")
+        return
+
+    print(f"Starting Jupyter Notebook server on port {port}...")
+    # Use 'uv run' to ensure correct environment
+    cmd = [
+        "uv", "run", "jupyter", "notebook",
+        "--no-browser",
+        "--ip=0.0.0.0",
+        f"--port={port}",
+        "--NotebookApp.token=''",
+        "--NotebookApp.password=''"
+    ]
+    
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setpgrp
+    )
+    
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(process.pid))
+    
+    print(f"Notebook server started with PID {process.pid}.")
+    print(f"Browser URL: http://tommys-mac-mini.tail59a169.ts.net:{port}/tree/captures.ipynb")
+
+@notebook_app.command("stop")
+def notebook_stop():
+    """Stops the Jupyter Notebook server."""
+    pid_path = Path(NOTEBOOK_PID_FILE)
+    if not pid_path.exists():
+        print("No notebook PID file found. Is the server running?")
+        return
+    
+    try:
+        pid = int(pid_path.read_text().strip())
+        print(f"Stopping notebook server (PID {pid})...")
+        os.killpg(pid, signal.SIGTERM)
+        pid_path.unlink()
+        print("Server stopped.")
+    except ProcessLookupError:
+        print("Process not found. Cleaning up stale PID file.")
+        pid_path.unlink()
+    except Exception as e:
+        print(f"Error stopping server: {e}")
 
 def generate_calendar_plist(schedule: Dict[str, int]) -> str:
     """Generates the StartCalendarInterval portion of a plist."""
