@@ -110,8 +110,9 @@ class CaptureBrowser:
         self.log_path = log_path
         self.data_root = data_root
         self.all_captures = []
-        self.main_output = widgets.Output()
-        self.control_panel = widgets.Output()
+        # Use a VBox container instead of Output to prevent scroll jumping
+        self.main_container = widgets.VBox()
+        self.control_container = widgets.VBox()
         self.current_index = 0
         self.selected_session = "<ACTIVE>"
 
@@ -122,69 +123,67 @@ class CaptureBrowser:
             self.all_captures = get_directory_captures(self.selected_session)
 
     def render_control_panel(self):
-        with self.control_panel:
-            clear_output(wait=True)
-            
-            # 1. Session Selection
-            options = [("<ACTIVE>", "<ACTIVE>")]
-            if Path(self.data_root).exists():
-                subdirs = [d for d in Path(self.data_root).iterdir() if d.is_dir()]
-                for d in sorted(subdirs, key=lambda x: x.name, reverse=True):
-                    options.append((d.name, str(d)))
-            
-            session_select = widgets.Dropdown(
-                options=options,
-                value=self.selected_session,
-                description='Session:',
-                style={'description_width': 'initial'},
-                layout=widgets.Layout(width='300px')
-            )
-            session_select.observe(self.handle_session_change, names='value')
-            
-            # 2. Statistics (Only if ACTIVE)
-            stats_box = widgets.VBox([])
-            plot_output = widgets.Output()
-            
-            if self.selected_session == "<ACTIVE>":
-                status = get_job_status(self.log_path)
-                if status:
-                    progress = status.get('progress', 0)
-                    total = status.get('total', 0)
-                    percentage = status.get('percentage', 0)
-                    remaining = max(0, total - progress)
-                    
-                    bar = widgets.IntProgress(
-                        value=progress, min=0, max=total,
-                        description=f'{percentage}%',
-                        bar_style='success',
-                        layout=widgets.Layout(width='400px')
-                    )
-                    
-                    metrics_html = widgets.HTML(
-                        value=f"""
-                        <div style='margin: 10px 0;'>
-                            <span style='margin-right: 20px;'><b>Completed:</b> {progress}</span>
-                            <span style='margin-right: 20px;'><b>Remaining:</b> {remaining}</span>
-                            <span><b>Total:</b> {total}</span>
-                        </div>
-                        """
-                    )
-                    stats_box = widgets.VBox([metrics_html, bar])
+        # 1. Session Selection
+        options = [("<ACTIVE>", "<ACTIVE>")]
+        if Path(self.data_root).exists():
+            subdirs = [d for d in Path(self.data_root).iterdir() if d.is_dir()]
+            for d in sorted(subdirs, key=lambda x: x.name, reverse=True):
+                options.append((d.name, str(d)))
+        
+        session_select = widgets.Dropdown(
+            options=options,
+            value=self.selected_session,
+            description='Session:',
+            style={'description_width': 'initial'},
+            layout=widgets.Layout(width='300px')
+        )
+        session_select.observe(self.handle_session_change, names='value')
+        
+        # 2. Statistics (Only if ACTIVE)
+        stats_box = widgets.VBox([])
+        plot_output = widgets.Output()
+        
+        if self.selected_session == "<ACTIVE>":
+            status = get_job_status(self.log_path)
+            if status:
+                progress = status.get('progress', 0)
+                total = status.get('total', 0)
+                percentage = status.get('percentage', 0)
+                remaining = max(0, total - progress)
                 
-                # 3. Schedule Plot
-                upcoming = get_upcoming_schedule()
-                if upcoming:
-                    with plot_output:
-                        self.render_schedule_plot(upcoming)
-
-            # Assemble Panel
-            panel_layout = widgets.VBox([
-                session_select,
-                stats_box,
-                plot_output
-            ], layout=widgets.Layout(padding='15px', border='1px solid #ccc', margin='0 0 20px 0', background='#f9f9f9'))
+                bar = widgets.IntProgress(
+                    value=progress, min=0, max=total,
+                    description=f'{percentage}%',
+                    bar_style='success',
+                    layout=widgets.Layout(width='400px')
+                )
+                
+                metrics_html = widgets.HTML(
+                    value=f"""
+                    <div style='margin: 10px 0;'>
+                        <span style='margin-right: 20px;'><b>Completed:</b> {progress}</span>
+                        <span style='margin-right: 20px;'><b>Remaining:</b> {remaining}</span>
+                        <span><b>Total:</b> {total}</span>
+                    </div>
+                    """
+                )
+                stats_box = widgets.VBox([metrics_html, bar])
             
-            display(panel_layout)
+            # 3. Schedule Plot
+            upcoming = get_upcoming_schedule()
+            if upcoming:
+                with plot_output:
+                    clear_output(wait=True)
+                    self.render_schedule_plot(upcoming)
+
+        # Assemble Panel
+        panel_layout = widgets.VBox([
+            session_select,
+            stats_box,
+            plot_output
+        ], layout=widgets.Layout(padding='15px', border='1px solid #ccc', margin='0 0 20px 0', background='#f9f9f9'))
+        
+        self.control_container.children = [panel_layout]
 
     def render_schedule_plot(self, upcoming):
         """Renders a scatter plot of upcoming capture times."""
@@ -206,80 +205,77 @@ class CaptureBrowser:
         plt.show()
 
     def show_review_mode(self, index):
-        with self.main_output:
-            clear_output(wait=True)
-            self.current_index = index
-            
-            cap = self.all_captures[index]
-            img_path = Path(cap['path'])
-            metar_path = Path(cap['metar']) if cap.get('metar') else None
-            
-            metar_text = metar_path.read_text().strip() if (metar_path and metar_path.exists()) else "Not available"
-            metar_box = widgets.HTML(
-                value=f"""
-                <div style='border: 1px solid #2196f3; border-left: 5px solid #2196f3; padding: 10px; margin: 10px 0; background: #e3f2fd;'>
-                    <b style='color: #1976d2;'>METAR Weather Data</b><br>
-                    <code style='font-family: monospace;'>{metar_text}</code>
-                </div>
-                """
-            )
-            
-            display(HTML(f"<h3>Step {cap['step']} <small style='color: #666;'>({cap['timestamp']})</small></h3>"))
-            display(metar_box)
-            
-            if img_path.exists():
-                display(Image(filename=str(img_path), width=1000))
-            else:
-                print(f"Image not found: {img_path}")
+        self.current_index = index
+        
+        cap = self.all_captures[index]
+        img_path = Path(cap['path'])
+        metar_path = Path(cap['metar']) if cap.get('metar') else None
+        
+        metar_text = metar_path.read_text().strip() if (metar_path and metar_path.exists()) else "Not available"
+        metar_box = widgets.HTML(
+            value=f"""
+            <div style='border: 1px solid #2196f3; border-left: 5px solid #2196f3; padding: 10px; margin: 10px 0; background: #e3f2fd;'>
+                <b style='color: #1976d2;'>METAR Weather Data</b><br>
+                <code style='font-family: monospace;'>{metar_text}</code>
+            </div>
+            """
+        )
+        
+        header = widgets.HTML(f"<h3>Step {cap['step']} <small style='color: #666;'>({cap['timestamp']})</small></h3>")
+        
+        if img_path.exists():
+            with open(img_path, "rb") as f:
+                img_widget = widgets.Image(value=f.read(), format='jpg', width=1000)
+        else:
+            img_widget = widgets.HTML(f"Image not found: {img_path}")
 
-            btn_older = widgets.Button(description="← Older", layout=widgets.Layout(width='100px'))
-            btn_gall = widgets.Button(description="Back to Gallery", button_style='info', layout=widgets.Layout(width='150px'))
-            btn_newer = widgets.Button(description="Newer →", layout=widgets.Layout(width='100px'))
+        btn_older = widgets.Button(description="← Older", layout=widgets.Layout(width='100px'))
+        btn_gall = widgets.Button(description="Back to Gallery", button_style='info', layout=widgets.Layout(width='150px'))
+        btn_newer = widgets.Button(description="Newer →", layout=widgets.Layout(width='100px'))
+        
+        if index >= len(self.all_captures) - 1: btn_older.disabled = True
+        else: btn_older.on_click(lambda _: self.show_review_mode(index + 1))
             
-            if index >= len(self.all_captures) - 1: btn_older.disabled = True
-            else: btn_older.on_click(lambda _: self.show_review_mode(index + 1))
-                
-            if index <= 0: btn_newer.disabled = True
-            else: btn_newer.on_click(lambda _: self.show_review_mode(index - 1))
-                
-            btn_gall.on_click(lambda _: self.show_gallery_mode())
-            display(widgets.HBox([btn_older, btn_gall, btn_newer], layout=widgets.Layout(margin='20px 0')))
+        if index <= 0: btn_newer.disabled = True
+        else: btn_newer.on_click(lambda _: self.show_review_mode(index - 1))
+            
+        btn_gall.on_click(lambda _: self.show_gallery_mode())
+        nav_box = widgets.HBox([btn_older, btn_gall, btn_newer], layout=widgets.Layout(margin='20px 0'))
+        
+        self.main_container.children = [header, metar_box, img_widget, nav_box]
 
     def show_gallery_mode(self):
         self.refresh_captures()
-        with self.main_output:
-            clear_output(wait=True)
-            
-            if not self.all_captures:
-                label = "active session" if self.selected_session == "<ACTIVE>" else f"directory {self.selected_session}"
-                print(f"No captures found in {label}.")
-                return
+        
+        if not self.all_captures:
+            label = "active session" if self.selected_session == "<ACTIVE>" else f"directory {self.selected_session}"
+            self.main_container.children = [widgets.HTML(f"No captures found in {label}.")]
+            return
 
-            items = []
-            for i, cap in enumerate(self.all_captures):
-                img_path = Path(cap['path'])
-                metar_path = Path(cap['metar']) if cap.get('metar') else None
-                if not img_path.exists(): continue
-                
-                with open(img_path, "rb") as f:
-                    image_widget = widgets.Image(value=f.read(), format='jpg', width=200, height=150)
-                
-                metar_preview = metar_path.read_text().strip() if (metar_path and metar_path.exists()) else "No weather data"
-                metar_html = widgets.HTML(
-                    value=f"<div style='width: 180px; font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace;'>{metar_preview}</div>",
-                    layout=widgets.Layout(margin='5px 0')
-                )
-                
-                btn = widgets.Button(description="🔍", layout=widgets.Layout(width='200px'))
-                def make_click_handler(idx): return lambda _: self.show_review_mode(idx)
-                btn.on_click(make_click_handler(i))
-                
-                box = widgets.VBox([image_widget, metar_html, btn], 
-                                   layout=widgets.Layout(margin='10px', align_items='center', border='1px solid #ddd', padding='5px'))
-                items.append(box)
+        items = []
+        for i, cap in enumerate(self.all_captures):
+            img_path = Path(cap['path'])
+            metar_path = Path(cap['metar']) if cap.get('metar') else None
+            if not img_path.exists(): continue
             
-            grid = widgets.GridBox(items, layout=widgets.Layout(grid_template_columns="repeat(auto-fill, 225px)"))
-            display(grid)
+            with open(img_path, "rb") as f:
+                image_widget = widgets.Image(value=f.read(), format='jpg', width=200, height=150)
+            
+            metar_preview = metar_path.read_text().strip() if (metar_path and metar_path.exists()) else "No weather data"
+            metar_html = widgets.HTML(
+                value=f"<div style='width: 180px; font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace;'>{metar_preview}</div>",
+                layout=widgets.Layout(margin='5px 0')
+            )
+            
+            btn = widgets.Button(description="🔍", layout=widgets.Layout(width='200px'))
+            btn.on_click(lambda _, idx=i: self.show_review_mode(idx))
+            
+            box = widgets.VBox([image_widget, metar_html, btn], 
+                                layout=widgets.Layout(margin='10px', align_items='center', border='1px solid #ddd', padding='5px'))
+            items.append(box)
+        
+        grid = widgets.GridBox(items, layout=widgets.Layout(grid_template_columns="repeat(auto-fill, 225px)"))
+        self.main_container.children = [grid]
 
     def handle_session_change(self, change):
         self.selected_session = change['new']
@@ -287,7 +283,7 @@ class CaptureBrowser:
         self.show_gallery_mode()
 
     def start(self):
-        display(self.control_panel)
-        display(self.main_output)
+        display(self.control_container)
+        display(self.main_container)
         self.render_control_panel()
         self.show_gallery_mode()
