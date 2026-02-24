@@ -270,8 +270,7 @@ class CaptureBrowser:
                     layout=widgets.Layout(margin='5px 0')
                 )
                 
-                label = f"🔍 Step {cap['step']}" if cap['step'] != "Dir" else "🔍 Review"
-                btn = widgets.Button(description=label, layout=widgets.Layout(width='200px'))
+                btn = widgets.Button(description="🔍", layout=widgets.Layout(width='200px'))
                 def make_click_handler(idx): return lambda _: self.show_review_mode(idx)
                 btn.on_click(make_click_handler(i))
                 
