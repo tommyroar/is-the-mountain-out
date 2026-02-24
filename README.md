@@ -48,6 +48,10 @@ uv run training batch data/20260222
 # Manage background training service via launchctl (periodic execution of 'once')
 uv run training schedule   # Install and load
 uv run training unschedule # Unload and remove
+
+# Manage the interactive capture browser (Jupyter Notebook)
+uv run collect notebook start
+uv run collect notebook stop
 ```
 
 ### Command Details
@@ -57,6 +61,8 @@ uv run training unschedule # Unload and remove
 - **collect collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
 - **collect schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `collection_seconds` or `schedule`) to run the `collect collect` command.
 - **collect unschedule**: Unloads and removes the `launchctl` service.
+- **collect notebook start**: Starts a Jupyter Notebook server in the background for browsing captured images and METAR data via `captures.ipynb`.
+- **collect notebook stop**: Stops the background Jupyter Notebook server.
 
 ## Training Goals & Metrics
 The primary goal is to achieve a model capable of high-confidence mountain detection across varying weather and lighting conditions.
