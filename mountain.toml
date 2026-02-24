@@ -30,5 +30,6 @@ alpha = 16
 target_modules = ["fc1", "fc2"] # ConvNeXt Linear layers in MLP
 
 [collection]
+data_root = "data"
 collection_seconds = 600 # 10 minutes for collection service (interval-based)
 # schedule = { Minute = 0 } # Optional: Run every hour on the hour (calendar-based)
