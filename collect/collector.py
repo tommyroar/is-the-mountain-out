@@ -365,8 +365,8 @@ def notebook_start(port: int = 8888):
         "--no-browser",
         "--ip=0.0.0.0",
         f"--port={port}",
-        "--NotebookApp.token=''",
-        "--NotebookApp.password=''"
+        "--NotebookApp.token=",
+        "--NotebookApp.password="
     ]
     
     process = subprocess.Popen(
