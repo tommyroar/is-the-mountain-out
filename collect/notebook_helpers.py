@@ -126,24 +126,7 @@ class CaptureBrowser:
             img_path = Path(cap['path'])
             metar_path = Path(cap['metar']) if cap.get('metar') else None
             
-            btn_older = widgets.Button(description="← Older", layout=widgets.Layout(width='100px'))
-            btn_gall = widgets.Button(description="Back to Gallery", button_style='info', layout=widgets.Layout(width='150px'))
-            btn_newer = widgets.Button(description="Newer →", layout=widgets.Layout(width='100px'))
-            
-            if index >= len(self.all_captures) - 1:
-                btn_older.disabled = True
-            else:
-                btn_older.on_click(lambda _: self.show_review_mode(index + 1))
-                
-            if index <= 0:
-                btn_newer.disabled = True
-            else:
-                btn_newer.on_click(lambda _: self.show_review_mode(index - 1))
-                
-            btn_gall.on_click(lambda _: self.show_gallery_mode())
-            
-            display(widgets.HBox([btn_older, btn_gall, btn_newer]))
-            
+            # 1. Show METAR Box
             metar_text = "Not available"
             if metar_path and metar_path.exists():
                 metar_text = metar_path.read_text().strip()
@@ -160,10 +143,30 @@ class CaptureBrowser:
             display(HTML(f"<h3>Step {cap['step']} <small style='color: #666;'>({cap['timestamp']})</small></h3>"))
             display(metar_box)
             
+            # 2. Show Image
             if img_path.exists():
                 display(Image(filename=str(img_path), width=1000))
             else:
                 print(f"Image not found: {img_path}")
+
+            # 3. Navigation Header (Moved Below Image): [Older] [Gallery] [Newer]
+            btn_older = widgets.Button(description="← Older", layout=widgets.Layout(width='100px'))
+            btn_gall = widgets.Button(description="Back to Gallery", button_style='info', layout=widgets.Layout(width='150px'))
+            btn_newer = widgets.Button(description="Newer →", layout=widgets.Layout(width='100px'))
+            
+            if index >= len(self.all_captures) - 1:
+                btn_older.disabled = True
+            else:
+                btn_older.on_click(lambda _: self.show_review_mode(index + 1))
+                
+            if index <= 0:
+                btn_newer.disabled = True
+            else:
+                btn_newer.on_click(lambda _: self.show_review_mode(index - 1))
+                
+            btn_gall.on_click(lambda _: self.show_gallery_mode())
+            
+            display(widgets.HBox([btn_older, btn_gall, btn_newer], layout=widgets.Layout(margin='20px 0')))
 
     def show_gallery_mode(self):
         self.refresh_captures()
