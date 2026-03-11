@@ -1,3 +1,4 @@
+import yaml
 import json
 import os
 import subprocess
@@ -6,6 +7,120 @@ from datetime import datetime, timedelta, UTC
 from IPython.display import display, Image, HTML, clear_output
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
+
+def get_data_root():
+    """Resolves data root: ENV > .mountain_data_root file > default 'data'."""
+    root_env = os.environ.get("MOUNTAIN_DATA_ROOT")
+    if root_env:
+        return root_env
+        
+    state_file = Path("data/.mountain_data_root")
+    if state_file.exists():
+        return state_file.read_text().strip()
+        
+    return "data"
+
+def load_labels(data_root):
+    """Loads the training index from labels.yaml."""
+    labels_path = Path(data_root) / "labels.yaml"
+    if labels_path.exists():
+        with open(labels_path, 'r') as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+def save_labels(data_root, labels):
+    """Saves the training index to labels.yaml."""
+    labels_path = Path(data_root) / "labels.yaml"
+    with open(labels_path, 'w') as f:
+        yaml.safe_dump(labels, f)
+
+class MountainClassifier:
+    def __init__(self, data_root='data'):
+        self.data_root = Path(data_root)
+        self.labels = load_labels(self.data_root)
+        self.all_captures = self._scan_captures()
+        self.unlabeled_indices = [i for i, c in enumerate(self.all_captures) if c['path'] not in self.labels]
+        self.current_unlabeled_idx = 0
+        
+        self.main_container = widgets.VBox()
+        self.status_label = widgets.HTML()
+        self.img_container = widgets.Box()
+        self.stats_box = widgets.HTML()
+
+    def _scan_captures(self):
+        """Recursively finds all JPG images in the data root."""
+        captures = []
+        for img_path in self.data_root.rglob("*.jpg"):
+            # Skip if in a 'test' directory or similar if needed
+            rel_path = str(img_path.relative_to(self.data_root))
+            captures.append({
+                'path': rel_path,
+                'abs_path': img_path,
+                'timestamp': path_to_timestamp(img_path)
+            })
+        return sorted(captures, key=lambda x: x['timestamp'], reverse=True)
+
+    def refresh_stats(self):
+        total = len(self.all_captures)
+        labeled = len(self.labels)
+        out_count = list(self.labels.values()).count(1)
+        not_out_count = list(self.labels.values()).count(0)
+        
+        self.stats_box.value = f"""
+        <div style='display: flex; gap: 20px; margin-bottom: 10px; font-family: sans-serif;'>
+            <div><b>Total:</b> {total}</div>
+            <div style='color: green;'><b>Labeled:</b> {labeled}</div>
+            <div style='color: #d9534f;'><b>Unlabeled:</b> {total - labeled}</div>
+            <div style='border-left: 1px solid #ccc; padding-left: 20px;'>
+                <b>Out (1):</b> {out_count} | <b>Not Out (0):</b> {not_out_count}
+            </div>
+        </div>
+        """
+
+    def classify(self, label):
+        if self.current_unlabeled_idx < len(self.unlabeled_indices):
+            idx = self.unlabeled_indices[self.current_unlabeled_idx]
+            cap = self.all_captures[idx]
+            
+            if label is not None:
+                self.labels[cap['path']] = label
+                save_labels(self.data_root, self.labels)
+            
+            self.current_unlabeled_idx += 1
+            self.render_current()
+
+    def render_current(self):
+        self.refresh_stats()
+        
+        if self.current_unlabeled_idx >= len(self.unlabeled_indices):
+            self.status_label.value = "<h3>🎉 All images in this directory have been labeled!</h3>"
+            self.img_container.children = []
+            return
+
+        idx = self.unlabeled_indices[self.current_unlabeled_idx]
+        cap = self.all_captures[idx]
+        
+        self.status_label.value = f"<h3>Classifying: <small style='color: #666;'>{cap['path']} ({cap['timestamp']})</small></h3>"
+        
+        with open(cap['abs_path'], "rb") as f:
+            img_widget = widgets.Image(value=f.read(), format='jpg', width=800)
+        
+        self.img_container.children = [img_widget]
+
+    def start(self):
+        btn_out = widgets.Button(description="MOUNTAIN IS OUT (1)", button_style='success', layout=widgets.Layout(width='200px', height='50px'))
+        btn_not = widgets.Button(description="NOT OUT (0)", button_style='danger', layout=widgets.Layout(width='200px', height='50px'))
+        btn_skip = widgets.Button(description="SKIP", button_style='warning', layout=widgets.Layout(width='100px', height='50px'))
+        
+        btn_out.on_click(lambda _: self.classify(1))
+        btn_not.on_click(lambda _: self.classify(0))
+        btn_skip.on_click(lambda _: self.classify(None))
+        
+        controls = widgets.HBox([btn_out, btn_not, btn_skip], layout=widgets.Layout(margin='20px 0', gap='10px'))
+        
+        self.main_container.children = [self.stats_box, self.status_label, self.img_container, controls]
+        display(self.main_container)
+        self.render_current()
 
 def get_job_captures(log_path):
     """Reads the collection log and returns a list of successful captures."""

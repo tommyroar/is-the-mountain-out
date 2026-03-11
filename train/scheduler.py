@@ -109,24 +109,37 @@ def live(config: str = "mountain.toml"):
     trainer.live_training_loop()
 
 @app.command()
-def batch(folder: str, label: int = 1, config: str = "mountain.toml"):
-    """Runs training on a folder, recursively finding images and matching METAR data."""
+def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml"):
+    """Runs training on a folder. If labels.yaml is present in the folder, it uses those labels."""
     trainer = Trainer(config)
+    data_root = Path(folder)
+    labels_file = data_root / "labels.yaml"
     
-    # Recursively find all JPG images
-    image_files = sorted(Path(folder).rglob("*.jpg"))
-    if not image_files:
-        print(f"No images found in {folder}")
-        return
-
-    print(f"Found {len(image_files)} images. Starting batch training...")
-    
-    image_list, weather_list, label_list = [], [], []
-    
+    import yaml
     import cv2
     from torchvision import transforms
     from metar import Metar
 
+    # Strategy: Use labels.yaml if exists, otherwise fallback to folder-wide label
+    labels_map = {}
+    if labels_file.exists():
+        with open(labels_file, 'r') as f:
+            labels_map = yaml.safe_load(f) or {}
+        print(f"Loaded {len(labels_map)} labels from {labels_file}")
+    
+    if not labels_map:
+        if label is None:
+            print("No labels.yaml found and no default --label provided. Exiting.")
+            return
+        # Recursively find all JPG images and assign the default label
+        image_files = sorted(data_root.rglob("*.jpg"))
+        labels_map = {str(img_p.relative_to(data_root)): label for img_p in image_files}
+        print(f"No labels.yaml found. Assigned default label {label} to {len(labels_map)} images.")
+
+    print(f"Starting batch training on {len(labels_map)} images...")
+    
+    image_list, weather_list, label_list = [], [], []
+    
     transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize(224),
@@ -135,18 +148,23 @@ def batch(folder: str, label: int = 1, config: str = "mountain.toml"):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    for img_p in image_files:
+    for rel_path, img_label in labels_map.items():
+        img_p = data_root / rel_path
+        if not img_p.exists():
+            print(f"  Warning: Image {img_p} not found. Skipping.")
+            continue
+
         # Strategy 1: Look for {img_stem}.txt in sibling 'metar' directory
         metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
-        # Strategy 2: Look for metar.txt in sibling 'metar' directory (common for single-source captures)
+        # Strategy 2: Look for metar.txt in sibling 'metar' directory
         if not metar_p.exists():
             metar_p = img_p.parent.parent / "metar" / "metar.txt"
-        # Strategy 3: Look for {img_stem}.txt in the same images directory (legacy or flat)
+        # Strategy 3: Look for {img_stem}.txt in the same images directory
         if not metar_p.exists():
             metar_p = img_p.parent / f"{img_p.stem}.txt"
             
         if not metar_p.exists():
-            print(f"  Warning: No METAR found for {img_p}")
+            print(f"  Warning: No METAR found for {img_p}. Skipping.")
             continue
 
         frame = cv2.imread(str(img_p))
@@ -168,7 +186,7 @@ def batch(folder: str, label: int = 1, config: str = "mountain.toml"):
         
         image_list.append(tensor)
         weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
-        label_list.append(torch.tensor(label))
+        label_list.append(torch.tensor(img_label))
         
         if len(image_list) >= 8:
             loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)

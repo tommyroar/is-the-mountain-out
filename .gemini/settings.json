@@ -1,0 +1,26 @@
+{
+  "project_name": "mountain-trainer",
+  "language": "python",
+  "testing_framework": "pytest",
+  "test_command": "uv run pytest",
+  "build_command": "uv pip install -e .",
+  "environment_management": "uv",
+  "mandates": [
+    "Target Apple Silicon Metal Performance Shaders (mps) for training and inference.",
+    "Perform zero-disk training for live captures (direct tensor conversion).",
+    "Centralize configuration in mountain.toml.",
+    "Store model weights and LoRA adapters in train/checkpoints/."
+  ],
+  "main_entrypoints": [
+    "uv run training live",
+    "uv run training once",
+    "uv run collect"
+  ],
+  "mcp": {
+    "excluded": [
+      "playwright",
+      "terraform",
+      "cloudflare"
+    ]
+  }
+}

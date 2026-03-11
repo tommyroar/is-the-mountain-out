@@ -350,37 +350,66 @@ def live(config: str = "mountain.toml", data_root: str = "data"):
     except KeyboardInterrupt:
         print("\nStopping live collection.")
 
+def get_folder_via_picker(title="Select Data Root"):
+    """Opens a native folder picker and returns the selected path."""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    # Bring window to front
+    root.attributes("-topmost", True)
+    print("Opening native folder picker...")
+    selected_dir = filedialog.askdirectory(
+        title=title,
+        initialdir=str(Path.cwd() / "data")
+    )
+    root.destroy()
+    return selected_dir
+
 @notebook_app.command("start")
-def notebook_start(port: int = 8888):
+def notebook_start(port: int = 8890, data_root: str = None):
     """Starts the Jupyter Notebook server for the capture browser."""
     pid_path = Path(NOTEBOOK_PID_FILE)
     if pid_path.exists():
         print(f"Notebook server may already be running (PID file exists at {pid_path}).")
         return
 
-    print(f"Starting Jupyter Notebook server on port {port}...")
+    # Use picker if no root provided
+    if not data_root:
+        data_root = get_folder_via_picker("Select Data Root for Capture Browser")
+        if not data_root:
+            print("No directory selected. Exiting.")
+            return
+
+    print(f"Starting Jupyter Notebook server on port {port} for: {data_root}...")
+    
+    # Set environment for the notebook to pick up
+    env = os.environ.copy()
+    env["MOUNTAIN_DATA_ROOT"] = data_root
+
     # Use 'uv run' to ensure correct environment
     cmd = [
         "uv", "run", "jupyter", "notebook",
         "--no-browser",
-        "--ip=0.0.0.0",
+        "--ip=127.0.0.1",
         f"--port={port}",
-        "--NotebookApp.token=",
-        "--NotebookApp.password="
+        "--ServerApp.token=",
+        "--ServerApp.password="
     ]
     
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        preexec_fn=os.setpgrp
+        preexec_fn=os.setpgrp,
+        env=env
     )
     
     pid_path.parent.mkdir(parents=True, exist_ok=True)
     pid_path.write_text(str(process.pid))
     
     print(f"Notebook server started with PID {process.pid}.")
-    print(f"Browser URL: http://tommys-mac-mini.tail59a169.ts.net:{port}/tree/captures.ipynb")
+    print(f"Browser URL: http://tommys-mac-mini.tail59a169.ts.net:{port}/notebooks/captures.ipynb")
 
 @notebook_app.command("stop")
 def notebook_stop():
