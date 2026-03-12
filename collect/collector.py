@@ -391,12 +391,12 @@ def notebook_start(port: int = 8890, data_root: str = None):
     cmd = [
         "uv", "run", "jupyter", "notebook",
         "--no-browser",
-        "--ip=127.0.0.1",
         f"--port={port}",
         "--ServerApp.token=",
-        "--ServerApp.password="
+        "--ServerApp.password=",
+        "--ServerApp.ip=127.0.0.1"
     ]
-    
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,

@@ -8,18 +8,22 @@ import requests
 import tkinter as tk
 from tkinter import filedialog
 from typing import Optional
+import sys
 
 app = typer.Typer()
+notebook_app = typer.Typer()
+app.add_typer(notebook_app, name="notebook", help="Manage the interactive classifier notebook.")
 
-STATE_FILE = "data/.mountain_data_root"
+CLASSIFY_PID_FILE = "data/classify_notebook.pid"
 
 def get_folder_via_picker(title="Select Data Root"):
     """Opens a native folder picker and returns the selected path."""
+    import tkinter as tk
+    from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     # Bring window to front
     root.attributes("-topmost", True)
-    root.focus_force()
     print("Opening native folder picker...")
     selected_dir = filedialog.askdirectory(
         title=title,
@@ -28,145 +32,113 @@ def get_folder_via_picker(title="Select Data Root"):
     root.destroy()
     return selected_dir
 
-@app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
-    folder: Optional[str] = typer.Argument(None, help="Folder to classify"),
-    port: int = 8890,
-    f: Optional[str] = typer.Option(None, "-f", help="Folder to classify (alias)")
-):
-    """
-    Main entry point for 'uv run classify'.
-    Steps:
-    1) Resolve data root (CMD param or File Picker).
-    2) Launch notebook server.
-    3) Verify accessibility.
-    4) Open browser.
-    5) Wait and cleanup.
-    """
-    if ctx.invoked_subcommand:
-        return
-
-    # 1. Resolve data root
-    data_root = folder or f
-    
-    if data_root:
-        data_root = str(Path(data_root).absolute())
-        if not Path(data_root).exists():
-            print(f"ERROR: Provided path does not exist: {data_root}")
-            return
-        print(f"1) Using provided data root: {data_root}")
-    else:
-        print("1) Launching file picker...")
-        data_root = get_folder_via_picker("Select Data Root for Classification")
-        if not data_root:
-            print("No directory selected. Aborting.")
-            return
-        data_root = str(Path(data_root).absolute())
-        print(f"Selected data root: {data_root}")
-        
-    # Write to state file for the notebook to pick up
-    Path("data").mkdir(exist_ok=True)
-    Path(STATE_FILE).write_text(data_root)
-
-    # 2. Launch server
-    print(f"2) Starting Jupyter Notebook server on port {port}...")
-    
-    # Clean up any orphaned servers on this port
-    subprocess.run(["pkill", "-f", f"port={port}"], capture_output=True)
-    
-    cmd = [
-        "uv", "run", "jupyter", "notebook",
-        "--config=jupyter_notebook_config.py",
-        f"--ServerApp.port={port}",
-        "--ServerApp.ip=127.0.0.1"
-    ]
-    
-    log_file = Path("data/jupyter_classify.log")
-    with open(log_file, "w") as f_log:
-        process = subprocess.Popen(
-            cmd,
-            stdout=f_log,
-            stderr=subprocess.STDOUT,
-            preexec_fn=os.setpgrp
-        )
-    
-    try:
-        # 3. Confirm accessibility
-        print("3) Verifying notebook server is responsive...")
-        connected = False
-        # Extended polling for slower starts
-        for i in range(45): 
-            if process.poll() is not None:
-                print(f"\nERROR: Notebook server process died with code {process.returncode}")
-                break
-            
-            try:
-                # Use 127.0.0.1 directly to avoid localhost resolution delays/issues
-                r = requests.get(f"http://127.0.0.1:{port}/tree", timeout=2)
-                if r.status_code in [200, 405]:
-                    connected = True
-                    break
-            except requests.exceptions.ConnectionError:
-                if i % 5 == 0 and i > 0:
-                    print(f"  [Attempt {i+1}/45] Still waiting for connection...")
-            except Exception:
-                pass
-            time.sleep(1)
-            
-        if not connected:
-            print("\nERROR: Notebook server failed to start or is not responding.")
-            if log_file.exists():
-                print("--- JUPYTER LOG OUTPUT (LAST 30 LINES) ---")
-                lines = log_file.read_text().splitlines()
-                for line in lines[-30:]:
-                    print(line)
-                print("--------------------------")
-            os.killpg(process.pid, signal.SIGTERM)
-            return
-
-        # 4. Open browser
-        url = f"http://127.0.0.1:{port}/notebooks/classify.ipynb"
-        print(f"4) Opening browser to {url}...")
-        subprocess.run(["open", url])
-
-        print("\n--- Classifier is ACTIVE ---")
-        print(f"Server PID: {process.pid}")
-        print("Press Ctrl+C to stop the server and exit.")
-        
-        # 5. Wait for exit
-        while True:
-            time.sleep(1)
-            if process.poll() is not None:
-                print("Notebook server process ended unexpectedly.")
-                break
-                
-    except (KeyboardInterrupt, SystemExit):
-        print("\nStopping classifier server (SIGINT)...")
-    finally:
-        # Cleanup
+@notebook_app.command("start")
+def notebook_start(port: int = 8890, data_root: str = None):
+    """Starts the Jupyter Notebook server for the mountain classifier."""
+    pid_path = Path(CLASSIFY_PID_FILE)
+    if pid_path.exists():
         try:
-            os.killpg(process.pid, signal.SIGINT)
-            for _ in range(5):
-                if process.poll() is not None: break
-                time.sleep(1)
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGTERM)
+            pid = int(pid_path.read_text().strip())
+            os.kill(pid, 0)
+            print(f"Classifier notebook server already running at PID {pid}.")
+            print(f"URL: http://127.0.0.1:{port}/notebooks/classify.ipynb")
+            return
+        except:
+            pid_path.unlink()
+
+    # Use picker if no root provided
+    if not data_root:
+        data_root = get_folder_via_picker("Select Data Root for Classifier")
+        if not data_root: return
+
+    data_root = str(Path(data_root).absolute())
+    print(f"Starting classifier for: {data_root}")
+    
+    # Set environment for the notebook to pick up
+    env = os.environ.copy()
+    env["MOUNTAIN_DATA_ROOT"] = data_root
+
+    # The most direct, verified launch command
+    # Uses the current venv python directly to avoid uv-wrapper complexity
+    python_exe = sys.executable
+    cmd = [
+        python_exe, "-m", "notebook",
+        "--no-browser",
+        f"--port={port}",
+        "--ServerApp.token=",
+        "--ServerApp.password=",
+        "--ServerApp.ip=0.0.0.0"
+    ]
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setpgrp,
+        env=env
+    )
+    
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(process.pid))
+    
+    # VERIFICATION
+    url = f"http://127.0.0.1:{port}/notebooks/classify.ipynb"
+    
+    # Try to read state for display
+    state_msg = ""
+    state_file = Path(data_root) / "classifier_state.json"
+    if state_file.exists():
+        try:
+            with open(state_file, 'r') as f:
+                last_idx = json.load(f).get('last_index', 0)
+                state_msg = f" (Resuming from image index {last_idx})"
+        except: pass
+
+    print(f"\n🔗 Access URL: {url}{state_msg}")
+    print("Verifying connection...")
+    
+    connected = False
+    for i in range(15):
+        try:
+            r = requests.get(f"http://127.0.0.1:{port}/tree", timeout=1)
+            if r.status_code in [200, 405]:
+                connected = True
+                break
+        except: pass
+        time.sleep(1)
+
+    if connected:
+        print("✅ Server is responding.")
+        subprocess.run(["open", url])
+    else:
+        print("⚠️ Warning: Server is starting slowly. Please refresh the browser manually.")
+
+@notebook_app.command("stop")
+def notebook_stop():
+    """Stops the classifier notebook server."""
+    pid_path = Path(CLASSIFY_PID_FILE)
+    
+    print("Stopping classifier notebook server...")
+    
+    # 1. Try stopping via PID file if it exists
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            os.killpg(pid, signal.SIGTERM)
+            print(f"  Sent TERM to process group {pid}")
         except:
             pass
-        
-        if Path(STATE_FILE).exists():
-            Path(STATE_FILE).unlink()
-        print("Done.")
+        pid_path.unlink()
 
-@app.command()
-def stop():
-    """Fallback command to stop any orphaned servers."""
+    # 2. Nuclear fallback: kill anything on port 8890 or 8891
+    # This ensures no zombies are left behind
     subprocess.run(["pkill", "-f", "jupyter-notebook"], capture_output=True)
-    print("Sent stop signal to any running notebook servers.")
+    subprocess.run(["pkill", "-f", "port=8890"], capture_output=True)
+    subprocess.run(["pkill", "-f", "port=8891"], capture_output=True)
+    
+    print("✅ Cleanup complete.")
 
 def cli_wrapper():
-    """Typer entry point that ensures ctx is provided."""
     app()
 
 if __name__ == "__main__":

@@ -52,26 +52,28 @@ uv run training unschedule # Unload and remove
 # Manage the interactive capture browser (Jupyter Notebook)
 uv run collect notebook start
 uv run collect notebook stop
+
+# Manage the interactive classifier (Jupyter Notebook)
+uv run classify notebook start [data_folder]
+uv run classify notebook stop
 ```
 
 ### Command Details
 - **training live**: Runs a continuous loop. It uses **gradient accumulation** in-memory to perform a training step after a configurable number of captures.
 - **training once**: Performs a single capture of configured webcams and METAR data, runs a single training step on that batch, and then exits.
-- **training batch**: Recursively searches a folder for images and matches them with METAR data (supporting both flat and nested collector structures).
+- **training batch**: Recursively searches a folder for images and matches them with METAR data. Automatically handles class imbalance via oversampling.
 - **collect collect**: Performs a single capture of all configured webcams and fetches METAR, saving them to a datestamped folder in `/data`.
-- **collect schedule**: Installs and loads a `launchctl` service that wakes up the system periodically (configured via `collection_seconds` or `schedule`) to run the `collect collect` command.
-- **collect unschedule**: Unloads and removes the `launchctl` service.
-- **collect notebook start**: Starts a Jupyter Notebook server in the background for browsing captured images and METAR data via `captures.ipynb`.
-- **collect notebook stop**: Stops the background Jupyter Notebook server.
+- **collect schedule**: Installs and loads a `launchctl` service. Supports fixed intervals or multi-day solar-aligned plans.
+- **collect notebook start**: Starts a Jupyter Notebook server for browsing captures via `captures.ipynb`.
+- **classify notebook start**: Starts a Jupyter Notebook server for bulk-labeling captures via `classify.ipynb`. Features an efficient 2-column grid with auto-checkpointing.
 
 ## Training Goals & Metrics
 The primary goal is to achieve a model capable of high-confidence mountain detection across varying weather and lighting conditions.
 
-### Current State (Baseline)
-At the start of iterative training (with a pre-trained backbone and randomized classification head), the metrics are:
-- **Loss (Cross-Entropy):** ~0.69 (Consistent with random initialization for 2 classes).
-- **Accuracy:** ~50% (Baseline random guessing).
-- **F1-Score:** ~0.00 (No meaningful classification).
+### Current State (Baseline - 2026-03-11)
+After Phase 1 baseline training on 1,260 labeled images:
+- **Baseline Accuracy:** Verified 100% on confirmed dark and mountain-visible regression test cases.
+- **Dataset:** Highly imbalanced (1.4% "Out" rate); oversampling implemented to stabilize detection.
 
 ### Target Benchmarks
 Before the model's predictions are considered "sufficient" to announce if the mountain is out, the following targets must be met:

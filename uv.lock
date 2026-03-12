@@ -107,6 +107,18 @@ wheels = [
 ]
 
 [[package]]
+name = "astral"
+version = "3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/04/d1/1adbf06a38dc339e41a1666f6c7135924594c20fd46e060fb263248c564d/astral-3.2.tar.gz", hash = "sha256:9b7c3b412e9e69d172cfb24be0e6addcc9f1bd01a28db8bebe66d75ccc533d88", size = 48075, upload-time = "2022-11-05T18:12:02.913Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/80/d6edd9c3259913cfe39aff2bea4da65de5ad0235a578405e37aabace5f2c/astral-3.2-py3-none-any.whl", hash = "sha256:cb7b49a3f0d4c64ae666be131276d2a3226134c598db10e672028cf8ff855f83", size = 38325, upload-time = "2022-11-05T18:12:01.164Z" },
+]
+
+[[package]]
 name = "asttokens"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -601,6 +613,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ipython-genutils"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/69/fbeffffc05236398ebfcfb512b6d2511c622871dca1746361006da310399/ipython_genutils-0.2.0.tar.gz", hash = "sha256:eb2e116e75ecef9d4d228fdc66af54269afa26ab4463042e33785b887c628ba8", size = 22208, upload-time = "2017-03-13T22:12:26.393Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/bc/9bd3b5c2b4774d5f33b2d544f1460be9df7df2fe42f352135381c347c69a/ipython_genutils-0.2.0-py2.py3-none-any.whl", hash = "sha256:72dd37233799e619666c9f639a9da83c34013a73e8bbc79a7a6348d93c61fab8", size = 26343, upload-time = "2017-03-13T22:12:25.412Z" },
+]
+
+[[package]]
 name = "ipython-pygments-lexers"
 version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1046,10 +1067,12 @@ name = "mountain-trainer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "astral" },
     { name = "ipython" },
     { name = "ipywidgets" },
     { name = "matplotlib" },
     { name = "metar" },
+    { name = "nbclassic" },
     { name = "notebook" },
     { name = "opencv-python-headless" },
     { name = "peft" },
@@ -1072,10 +1095,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "astral", specifier = ">=3.2" },
     { name = "ipython", specifier = ">=9.0.0" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "metar", specifier = ">=1.11.0" },
+    { name = "nbclassic", specifier = ">=1.2.0" },
     { name = "notebook", specifier = ">=7.3.2" },
     { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
     { name = "peft", specifier = ">=0.18.1" },
@@ -1101,6 +1126,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e0/47/dd32fa426cc72114383ac549964eecb20ecfd886d1e5ccf5340b55b02f57/mpmath-1.3.0.tar.gz", hash = "sha256:7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f", size = 508106, upload-time = "2023-03-07T16:47:11.061Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/43/e3/7d92a15f894aa0c9c4b49b8ee9ac9850d6e63b03c9c32c0367a13ae62209/mpmath-1.3.0-py3-none-any.whl", hash = "sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c", size = 536198, upload-time = "2023-03-07T16:47:09.197Z" },
+]
+
+[[package]]
+name = "nbclassic"
+version = "1.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ipykernel" },
+    { name = "ipython-genutils" },
+    { name = "nest-asyncio" },
+    { name = "notebook-shim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/cc/a495b5eb9a964b70c6ae8c861168b78386d2520fd89c68390932f96400b2/nbclassic-1.3.3.tar.gz", hash = "sha256:434228763f8cee754318cd6dfa42370db191af630dabab8e30bafc8c1aa3eee6", size = 64116062, upload-time = "2025-09-16T20:33:15.967Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/fd/dfb6db427bb4e0a50c9802b11df0b69d9364192f3db999849cde9209c8d0/nbclassic-1.3.3-py3-none-any.whl", hash = "sha256:dcee5149aa6aa01846c7458d6394b29b325213b5e118ee14c80d689122e0e4f2", size = 11527229, upload-time = "2025-09-16T20:33:08.625Z" },
 ]
 
 [[package]]

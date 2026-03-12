@@ -5,9 +5,11 @@ from peft import LoraConfig, get_peft_model
 from typing import List, Optional
 import os
 
-class ConvNextLoRAModel:
+class ConvNextLoRAModel(nn.Module):
     def __init__(self, num_classes: int = 2, rank: int = 8, alpha: int = 16, 
-                 target_modules: List[str] = ["fc1", "fc2"], device: str = "mps"):
+                 target_modules: List[str] = ["fc1", "fc2"], device: str = "mps",
+                 checkpoint_dir: Optional[str] = None):
+        super().__init__()
         self.device = device if torch.backends.mps.is_available() else "cpu"
         
         # Load pretrained model
@@ -34,60 +36,65 @@ class ConvNextLoRAModel:
             nn.Linear(256, num_classes)
         )
         
-        self.model = nn.ModuleDict({
+        self.model_dict = nn.ModuleDict({
             'backbone': self.backbone,
             'classifier': self.classifier
         })
-        self.model.to(self.device)
+        self.model_dict.to(self.device)
+
+        if checkpoint_dir:
+            self.load_checkpoint(checkpoint_dir)
+
+    def forward(self, image_batch: torch.Tensor, weather_batch: torch.Tensor):
+        features = self.model_dict['backbone'](image_batch)
+        combined_input = torch.cat((features, weather_batch), dim=1)
+        return self.model_dict['classifier'](combined_input)
 
     def train_step(self, image_batch: torch.Tensor, weather_batch: torch.Tensor, 
-                   label_batch: torch.Tensor, optimizer: torch.optim.Optimizer):
-        self.model.train()
+                   label_batch: torch.Tensor, optimizer: torch.optim.Optimizer,
+                   class_weights: Optional[torch.Tensor] = None):
+        self.model_dict.train()
         optimizer.zero_grad()
         
         image_batch = image_batch.to(self.device)
         weather_batch = weather_batch.to(self.device)
         label_batch = label_batch.to(self.device)
+        if class_weights is not None:
+            class_weights = class_weights.to(self.device)
         
-        features = self.model['backbone'](image_batch)
-        combined_input = torch.cat((features, weather_batch), dim=1)
-        outputs = self.model['classifier'](combined_input)
+        outputs = self.forward(image_batch, weather_batch)
         
-        loss = torch.nn.functional.cross_entropy(outputs, label_batch)
+        loss = torch.nn.functional.cross_entropy(outputs, label_batch, weight=class_weights)
         loss.backward()
         optimizer.step()
         
         loss_val = loss.item()
-        del loss, outputs, features, combined_input, label_batch
+        del loss, outputs, label_batch
         if self.device == "mps":
             torch.mps.empty_cache()
             
         return loss_val
 
     def predict(self, image_batch: torch.Tensor, weather_batch: torch.Tensor) -> torch.Tensor:
-        self.model.eval()
+        self.model_dict.eval()
         with torch.no_grad():
-            image_batch = image_batch.to(self.device)
-            weather_batch = weather_batch.to(self.device)
-            features = self.model['backbone'](image_batch)
-            combined_input = torch.cat((features, weather_batch), dim=1)
-            outputs = self.model['classifier'](combined_input)
+            outputs = self.forward(image_batch, weather_batch)
             _, predicted = torch.max(outputs, 1)
             return predicted
 
     def save_checkpoint(self, checkpoint_dir: str):
         """Saves LoRA adapters and classifier head."""
         os.makedirs(checkpoint_dir, exist_ok=True)
-        self.model['backbone'].save_pretrained(checkpoint_dir)
-        torch.save(self.model['classifier'].state_dict(), os.path.join(checkpoint_dir, "classifier.pt"))
+        self.model_dict['backbone'].save_pretrained(checkpoint_dir)
+        torch.save(self.model_dict['classifier'].state_dict(), os.path.join(checkpoint_dir, "classifier.pt"))
         print(f"Checkpoint saved to {checkpoint_dir}")
 
     def load_checkpoint(self, checkpoint_dir: str):
         """Loads LoRA adapters and classifier head."""
         classifier_path = os.path.join(checkpoint_dir, "classifier.pt")
         if os.path.exists(checkpoint_dir) and os.path.exists(classifier_path):
-            self.model['backbone'].load_adapter(checkpoint_dir, "default")
-            self.model['classifier'].load_state_dict(torch.load(classifier_path, map_location=self.device))
+            self.model_dict['backbone'].load_adapter(checkpoint_dir, "default")
+            self.model_dict['classifier'].load_state_dict(torch.load(classifier_path, map_location=self.device))
             print(f"Checkpoint loaded from {checkpoint_dir}")
             return True
         return False

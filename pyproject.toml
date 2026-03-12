@@ -9,8 +9,10 @@ description = "Iterative LoRA training for Mount Rainier visibility detection"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "astral>=3.2",
     "ipython>=9.0.0",
     "ipywidgets>=8.1.5",
+    "nbclassic>=1.2.0",
     "notebook>=7.3.2",
     "matplotlib>=3.10.8",
     "metar>=1.11.0",

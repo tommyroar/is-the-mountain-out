@@ -31,7 +31,8 @@ class Trainer:
         # Attempt to load checkpoint
         self.model_wrapper.load_checkpoint(self.config_loader.checkpoint_dir)
         
-        self.optimizer = optim.Adam(self.model_wrapper.model.parameters(), lr=0.001)
+        # Lower learning rate for fine-tuning stability
+        self.optimizer = optim.Adam(self.model_wrapper.model_dict.parameters(), lr=0.0001)
         self.weather_fetcher = WeatherFetcher(self.config_loader.metar_station)
 
     def run_single_cycle(self, label: int = 1):
@@ -127,19 +128,39 @@ def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml
             labels_map = yaml.safe_load(f) or {}
         print(f"Loaded {len(labels_map)} labels from {labels_file}")
     
-    if not labels_map:
-        if label is None:
-            print("No labels.yaml found and no default --label provided. Exiting.")
-            return
-        # Recursively find all JPG images and assign the default label
-        image_files = sorted(data_root.rglob("*.jpg"))
-        labels_map = {str(img_p.relative_to(data_root)): label for img_p in image_files}
-        print(f"No labels.yaml found. Assigned default label {label} to {len(labels_map)} images.")
+    # Calculate class weights based on labels_map
+    all_label_values = list(labels_map.values())
+    count_0 = all_label_values.count(0)
+    count_1 = all_label_values.count(1)
+    
+    # Avoid division by zero
+    w0 = 1.0 / (count_0 if count_0 > 0 else 1)
+    w1 = 1.0 / (count_1 if count_1 > 0 else 1)
+    
+    # Strategy: Oversample the minority class (Out = 1)
+    labels_out = {path: label for path, label in labels_map.items() if label == 1}
+    labels_not_out = {path: label for path, label in labels_map.items() if label == 0}
+    
+    # We want at least a 1:4 ratio of Out:NotOut for better gradient signal
+    oversample_factor = max(1, len(labels_not_out) // (len(labels_out) * 4) if labels_out else 1)
+    
+    final_training_list = []
+    # Add all 'Not Out' once
+    for p, l in labels_not_out.items():
+        final_training_list.append((p, l))
+    # Add 'Out' images multiple times
+    for p, l in labels_out.items():
+        for _ in range(oversample_factor):
+            final_training_list.append((p, l))
+            
+    import random
+    random.shuffle(final_training_list)
 
-    print(f"Starting batch training on {len(labels_map)} images...")
+    print(f"Dataset balanced: {len(labels_not_out)} 'Not Out' vs {len(labels_out) * oversample_factor} 'Out' (Factor: {oversample_factor}x)")
+    epochs = 5
+    batch_size = 16
     
-    image_list, weather_list, label_list = [], [], []
-    
+    from torchvision import transforms
     transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize(224),
@@ -148,54 +169,47 @@ def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    for rel_path, img_label in labels_map.items():
-        img_p = data_root / rel_path
-        if not img_p.exists():
-            print(f"  Warning: Image {img_p} not found. Skipping.")
-            continue
+    for epoch in range(epochs):
+        random.shuffle(final_training_list)
+        print(f"Epoch {epoch+1}/{epochs}...")
+        
+        image_list, weather_list, label_list = [], [], []
+        
+        for rel_path, img_label in final_training_list:
+            img_p = data_root / rel_path
+            # ... (Existing logic to load image and metar)
+            metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
+            if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
+            if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
+            if not metar_p.exists(): continue
 
-        # Strategy 1: Look for {img_stem}.txt in sibling 'metar' directory
-        metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
-        # Strategy 2: Look for metar.txt in sibling 'metar' directory
-        if not metar_p.exists():
-            metar_p = img_p.parent.parent / "metar" / "metar.txt"
-        # Strategy 3: Look for {img_stem}.txt in the same images directory
-        if not metar_p.exists():
-            metar_p = img_p.parent / f"{img_p.stem}.txt"
+            frame = cv2.imread(str(img_p))
+            if frame is None: continue
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            tensor = transform(frame_rgb).to(trainer.device)
             
-        if not metar_p.exists():
-            print(f"  Warning: No METAR found for {img_p}. Skipping.")
-            continue
+            with open(metar_p, 'r') as f: metar_text = f.read().strip()
+            vis, ceil = 0.0, 1.0
+            try:
+                obs = Metar.Metar(metar_text)
+                if obs.vis: vis = min(obs.vis.value('SM'), 10.0) / 10.0
+                if obs.sky:
+                    layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
+                    ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
+            except: pass
+            
+            image_list.append(tensor)
+            weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
+            label_list.append(torch.tensor(img_label))
+            
+            if len(image_list) >= batch_size:
+                loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
+                image_list, weather_list, label_list = [], [], []
 
-        frame = cv2.imread(str(img_p))
-        if frame is None: continue
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        tensor = transform(frame_rgb).to(trainer.device)
+        if image_list:
+            trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
         
-        with open(metar_p, 'r') as f:
-            metar_text = f.read().strip()
-        
-        vis, ceil = 0.0, 1.0
-        try:
-            obs = Metar.Metar(metar_text)
-            if obs.vis: vis = min(obs.vis.value('SM'), 10.0) / 10.0
-            if obs.sky:
-                layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
-                ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
-        except: pass
-        
-        image_list.append(tensor)
-        weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
-        label_list.append(torch.tensor(img_label))
-        
-        if len(image_list) >= 8:
-            loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
-            print(f"Processed batch: Loss = {loss:.4f}")
-            image_list, weather_list, label_list = [], [], []
-
-    if image_list:
-        loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
-        print(f"Final batch: Loss = {loss:.4f}")
+        print(f"Epoch {epoch+1} complete.")
     
     trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
 
