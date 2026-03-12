@@ -40,9 +40,9 @@ def test_dark_frame_prediction(tester):
     """
     Case: Confirmed dark night frame.
     Human Label: 0 (Not Out)
-    Source: data/20260225/032246_276332_UTC/
+    Source: assets/regression_samples/dark_sample.jpg
     """
-    img_path = Path("data/20260225/032246_276332_UTC/images/032246_276332_UTC_https___atmos_uw_edu_data_images_webcam2_latest_jpg.jpg")
+    img_path = Path("assets/regression_samples/dark_sample.jpg")
     # Low visibility/ceiling usually accompanies dark frames if weather is bad, 
     # but for a 'pure darkness' test we keep weather neutral to test vision bias.
     prediction = tester.predict(img_path, vis=1.0, ceil=1.0)
@@ -53,10 +53,9 @@ def test_known_out_frame(tester):
     """
     Case: Confirmed mountain visible frame.
     Human Label: 1 (Mountain is Out)
+    Source: assets/regression_samples/mountain_out_sample.jpg
     """
-    # We select one of our 18 confirmed positive samples
-    # data/20260222/230654_281835_UTC/ (One of the earliest successes)
-    img_path = Path("data/20260222/230654_281835_UTC/images/230654_281835_UTC_https___atmos_uw_edu_data_images_webcam2_latest_jpg.jpg")
+    img_path = Path("assets/regression_samples/mountain_out_sample.jpg")
     prediction = tester.predict(img_path, vis=1.0, ceil=1.0)
     
     assert prediction == 1, f"Model failed to identify known mountain-out frame. Predicted: {prediction}"
