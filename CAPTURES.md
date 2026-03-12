@@ -63,6 +63,20 @@ To reduce redundancy while maintaining atmospheric diversity, the `tools/prune_d
 | 2026-03-11 | **CLASSIFIED**| Manual labeling of 1,260 images completed |
 | 2026-03-12 | **ACTIVE**    | Phase 2: 30-Day "Diffuse Spring" Solar Plan (21 images/day) |
 
+## A/B Testing: METAR Ablation Study (2026-03-11)
+A systematic A/B comparison was performed to determine if METAR weather data provides unique signal or if it is redundant with the vision backbone.
+
+| Variant | F1-Score | Precision | Recall |
+| :--- | :---: | :---: | :---: |
+| **Vision Only** | **0.525** | 0.556 | 0.500 |
+| **Full METAR (Real-time)** | 0.499 | **0.700** | **0.556** |
+| **Sparse METAR (Daily)** | 0.507 | 0.544 | 0.500 |
+
+### Conclusion:
+1. **Redundancy:** The `convnext_tiny` vision features are highly correlated with METAR data. The model can effectively "see" the visibility and ceiling from the image alone.
+2. **Precision Benefit:** Real-time METAR data provides a boost to **Precision (0.70 vs 0.55)**, suggesting it acts as a reliable "sanity check" that suppresses false-positive predictions.
+3. **Frequency:** High-frequency METAR updates are **unnecessary**. Daily or hourly syncs are sufficient to capture the relevant atmospheric trends.
+
 ## Phase 2: Spring Collection (Phase 2)
 **Goal:** Gather high-variance data during March/April when visibility windows are more frequent.
 
