@@ -64,37 +64,64 @@ def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
+def find_last_metar(data_root: str) -> Optional[str]:
+    """Finds the most recently saved METAR text in the data directory."""
+    root = Path(data_root)
+    # Search all metar.txt files sorted by name (which is chronological in our structure)
+    all_metars = sorted(list(root.rglob("metar.txt")))
+    if not all_metars:
+        return None
+    try:
+        with open(all_metars[-1], "r") as f:
+            return f.read().strip()
+    except:
+        return None
+
+def find_most_recent_metar_path(data_root: str) -> Optional[str]:
+    """Returns the path to the most recently saved metar.txt file."""
+    root = Path(data_root)
+    all_metars = sorted(list(root.rglob("metar.txt")))
+    if all_metars:
+        return str(all_metars[-1])
+    return None
+
 def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data", step_info: Optional[Dict] = None):
     """Core logic to capture a single image and METAR data with UTC-based naming."""
     now_utc = datetime.now(UTC)
     date_str = now_utc.strftime("%Y%m%d")
-    # Include microseconds to avoid collisions in concurrent runs
     time_str = now_utc.strftime("%H%M%S_%f_UTC")
     
-    # Structure: data/YYYYMMDD/HHMMSS_micro_UTC/
     capture_dir = Path(data_root) / date_str / time_str
     image_dir = capture_dir / "images"
     metar_dir = capture_dir / "metar"
     
     image_dir.mkdir(parents=True, exist_ok=True)
-    metar_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"[{now_utc}] Starting collection into {capture_dir}...")
     
-    # Fetch and save METAR
+    # 1. Fetch and deduplicate METAR
     metar_text = weather_fetcher.fetch_latest_metar()
     metar_success = False
-    metar_path = metar_dir / "metar.txt"
+    metar_path = None
+    
     if metar_text:
-        with open(metar_path, "w") as f:
-            f.write(metar_text)
-        print("  METAR data saved.")
-        metar_success = True
-        log_event("METAR", "SUCCESS", {
-            "station_id": weather_fetcher.station_id,
-            "metar_path": str(metar_path),
-            **(step_info or {})
-        })
+        last_metar = find_last_metar(data_root)
+        if metar_text != last_metar:
+            # Only create directory and file if it changed
+            metar_dir.mkdir(parents=True, exist_ok=True)
+            metar_path = metar_dir / "metar.txt"
+            with open(metar_path, "w") as f:
+                f.write(metar_text)
+            print("  METAR data changed - saved.")
+            metar_success = True
+            log_event("METAR", "SUCCESS", {
+                "station_id": weather_fetcher.station_id,
+                "metar_path": str(metar_path),
+                **(step_info or {})
+            })
+        else:
+            print("  METAR unchanged - skipping file write.")
+            metar_success = True # We still have it, it's just redundant
     else:
         print("  Warning: METAR capture failed.")
         log_event("METAR", "FAILURE", {
@@ -102,7 +129,7 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             **(step_info or {})
         })
     
-    # Capture and save image
+    # 2. Capture and save image
     source = config_loader.webcam_url
     if not source:
         print("Error: No webcam source configured.")
@@ -119,11 +146,10 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             cv2.imwrite(str(image_path), frame)
             print(f"  Source {source}: Saved as {filename}")
             
-            metar_path = metar_dir / "metar.txt"
             log_event("CAPTURE", "SUCCESS", {
                 "input_url": source,
                 "image_path": str(image_path),
-                "metar_path": str(metar_path) if metar_success else None,
+                "metar_path": find_most_recent_metar_path(data_root),
                 "metar_success": metar_success,
                 **(step_info or {})
             })
