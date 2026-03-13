@@ -11,79 +11,91 @@ import cv2
 from typing import Optional, Dict, List
 
 from train.config_loader import ConfigLoader
-from train.utils import WebcamStream, WeatherFetcher
 
 app = typer.Typer()
 notebook_app = typer.Typer()
-app.add_typer(notebook_app, name="notebook", help="Manage the interactive capture browser notebook.")
+app.add_typer(notebook_app, name="notebook", help="Manage the interactive capture browser.")
 
-PLAN_STATE_FILE = "data/plan_state.json"
-COLLECTION_LOG = "data/collection.log"
-NTFY_KEY_FILE = "ntfy.key"
+LOG_FILE = "data/collection.log"
 NOTEBOOK_PID_FILE = "data/notebook.pid"
+NTFY_KEY_FILE = "ntfy.key"
 
-def send_notification(message: str, title: Optional[str] = None, priority: str = "default"):
-    """Sends a push notification via ntfy.sh using the topic from environment or ntfy.key."""
-    topic = os.environ.get("NTFY_TOPIC")
-    
-    if not topic:
-        key_path = Path(NTFY_KEY_FILE)
-        if key_path.exists():
-            with open(key_path, "r") as f:
-                topic = f.read().strip()
-    
-    if not topic:
-        return
+class WebcamStream:
+    def __init__(self, url: str):
+        self.url = url
+        self.cap = cv2.VideoCapture(url)
 
-    url = f"https://ntfy.sh/{topic}"
-    headers = {"Priority": priority}
-    if title:
-        # Use RFC 2047 encoding for the title to support emojis in HTTP headers
-        import base64
-        encoded_title = base64.b64encode(title.encode('utf-8')).decode('utf-8')
-        headers["Title"] = f"=?utf-8?B?{encoded_title}?="
-    
-    try:
-        # Send raw message bytes to ntfy
-        requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=5)
-    except Exception as e:
-        log_event("NOTIFICATION", "ERROR", {"reason": str(e), "message": message})
+    def capture_raw(self):
+        ret, frame = self.cap.read()
+        if ret:
+            return frame
+        return None
 
-def log_event(event_type: str, status: str, metadata: Optional[Dict] = None):
-    """Writes a structured JSON log entry."""
-    log_path = Path(COLLECTION_LOG)
+    def capture_to_tensor(self, transform):
+        frame = self.capture_raw()
+        if frame is not None:
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            return transform(frame_rgb)
+        return None
+
+    def release(self):
+        self.cap.release()
+
+class WeatherFetcher:
+    def __init__(self, station_id: str = "KSEA"):
+        self.station_id = station_id
+        self.base_url = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station_id}.TXT"
+
+    def fetch_latest_metar(self) -> Optional[str]:
+        try:
+            response = requests.get(self.base_url, timeout=10)
+            if response.status_code == 200:
+                # METAR is typically the second line of the NOAA response
+                lines = response.text.strip().split('\n')
+                if len(lines) >= 2:
+                    return lines[1]
+                return lines[0]
+        except Exception as e:
+            print(f"Error fetching METAR: {e}")
+        return None
+
+    def get_weather_vector(self) -> torch.Tensor:
+        import torch
+        from metar import Metar
+        metar_text = self.fetch_latest_metar()
+        vis, ceil = 0.0, 1.0 # Defaults (bad weather)
+        if metar_text:
+            try:
+                obs = Metar.Metar(metar_text)
+                if obs.vis:
+                    # Normalize vis (0 to 10 miles -> 0.0 to 1.0)
+                    vis = min(obs.vis.value('SM'), 10.0) / 10.0
+                if obs.sky:
+                    # Normalize ceiling (0 to 10000ft -> 0.0 to 1.0)
+                    # Use the lowest broken or overcast layer
+                    layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
+                    if layers:
+                        ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0
+                    else:
+                        ceil = 1.0 # Clear
+            except:
+                pass
+        return torch.tensor([vis, ceil], dtype=torch.float32)
+
+def log_event(event: str, status: str, metadata: Optional[Dict] = None):
+    log_path = Path(LOG_FILE)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     
     entry = {
         "timestamp": datetime.now(UTC).isoformat(),
-        "event": event_type,
+        "event": event,
         "status": status,
         "metadata": metadata or {}
     }
     
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
-
-def find_last_metar(data_root: str) -> Optional[str]:
-    """Finds the most recently saved METAR text in the data directory."""
-    root = Path(data_root)
-    # Search all metar.txt files sorted by name (which is chronological in our structure)
-    all_metars = sorted(list(root.rglob("metar.txt")))
-    if not all_metars:
-        return None
-    try:
-        with open(all_metars[-1], "r") as f:
-            return f.read().strip()
-    except:
-        return None
-
-def find_most_recent_metar_path(data_root: str) -> Optional[str]:
-    """Returns the path to the most recently saved metar.txt file."""
-    root = Path(data_root)
-    all_metars = sorted(list(root.rglob("metar.txt")))
-    if all_metars:
-        return str(all_metars[-1])
-    return None
 
 def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data", step_info: Optional[Dict] = None):
     """Core logic to capture a single image and METAR data with UTC-based naming."""
@@ -96,32 +108,24 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     metar_dir = capture_dir / "metar"
     
     image_dir.mkdir(parents=True, exist_ok=True)
+    metar_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"[{now_utc}] Starting collection into {capture_dir}...")
     
-    # 1. Fetch and deduplicate METAR
+    # Fetch and save METAR
     metar_text = weather_fetcher.fetch_latest_metar()
     metar_success = False
-    metar_path = None
-    
+    metar_path = metar_dir / "metar.txt"
     if metar_text:
-        last_metar = find_last_metar(data_root)
-        if metar_text != last_metar:
-            # Only create directory and file if it changed
-            metar_dir.mkdir(parents=True, exist_ok=True)
-            metar_path = metar_dir / "metar.txt"
-            with open(metar_path, "w") as f:
-                f.write(metar_text)
-            print("  METAR data changed - saved.")
-            metar_success = True
-            log_event("METAR", "SUCCESS", {
-                "station_id": weather_fetcher.station_id,
-                "metar_path": str(metar_path),
-                **(step_info or {})
-            })
-        else:
-            print("  METAR unchanged - skipping file write.")
-            metar_success = True # We still have it, it's just redundant
+        with open(metar_path, "w") as f:
+            f.write(metar_text)
+        print("  METAR data saved.")
+        metar_success = True
+        log_event("METAR", "SUCCESS", {
+            "station_id": weather_fetcher.station_id,
+            "metar_path": str(metar_path),
+            **(step_info or {})
+        })
     else:
         print("  Warning: METAR capture failed.")
         log_event("METAR", "FAILURE", {
@@ -129,7 +133,7 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             **(step_info or {})
         })
     
-    # 2. Capture and save image
+    # Capture and save image
     source = config_loader.webcam_url
     if not source:
         print("Error: No webcam source configured.")
@@ -149,7 +153,7 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             log_event("CAPTURE", "SUCCESS", {
                 "input_url": source,
                 "image_path": str(image_path),
-                "metar_path": find_most_recent_metar_path(data_root),
+                "metar_path": str(metar_path) if metar_success else None,
                 "metar_success": metar_success,
                 **(step_info or {})
             })
@@ -178,150 +182,71 @@ def parse_interval(interval_str: str) -> int:
 @app.command()
 def collect(config: str = "mountain.toml", data_root: str = "data"):
     """
-    Runs a single capture of the configured webcam and METAR data.
+    Performs a single capture of all configured webcams and METAR data.
     """
-    _collect_internal(config, data_root)
-    print(f"[{datetime.now(UTC)}] Collection complete.")
-
-def _collect_internal(config: str = "mountain.toml", data_root: str = "data", step_info: Optional[Dict] = None):
-    """Internal helper for collection logic."""
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
+    perform_capture(config_loader, weather_fetcher, data_root)
 
 @app.command()
 def plan(
     steps: List[str], 
     config: str = "mountain.toml", 
-    data_root: str = "data"
+    data_root: str = "data",
+    start_index: int = 0
 ):
     """
-    Processes a sequence of intervals. Saves state to remain durable across runs.
-    Accepts intervals (e.g., '10m', '1h') and a terminal 'stop' command.
+    Executes a sequence of capture steps with defined waits.
+    Example: uv run collect plan 600s 600s stop
     """
-    state_path = Path(PLAN_STATE_FILE)
-    now = time.time()
+    config_loader = ConfigLoader(config)
+    weather_fetcher = WeatherFetcher(config_loader.metar_station)
     
-    if state_path.exists():
-        with open(state_path, "r") as f:
-            state = json.load(f)
-    else:
-        # Initialize new plan: First step is always a delay before the first action
-        if not os.environ.get("NTFY_TOPIC") and Path(NTFY_KEY_FILE).exists():
-            with open(NTFY_KEY_FILE, "r") as f:
-                os.environ["NTFY_TOPIC"] = f.read().strip()
-
-        log_event("PLAN", "START", {"total_steps": len(steps)})
-        send_notification(
-            f"Starting new collection plan with {len(steps)} steps.",
-            title="🏔️ Collection Started"
-        )
-        
-        interval = parse_interval(steps[0])
-        state = {
-            "step_index": 0, 
-            "next_run": now + interval
-        }
-        with open(state_path, "w") as f:
-            json.dump(state, f)
-        print(f"Plan initialized. First capture in {interval}s.")
-        return
-            
-    current_index = state["step_index"]
-    if current_index >= len(steps):
-        print("Plan already completed.")
-        return
-
-    if now < state["next_run"]:
-        print(f"Waiting... Next run in {int(state['next_run'] - now)}s")
-        return
-
-    step = steps[current_index]
-    if step.lower() == "stop":
-        print("Plan 'stop' reached. Cleaning up...")
-        log_event("PLAN", "STOP", {"completed_steps": current_index})
-        send_notification(
-            f"✅ Collection plan complete! {current_index} steps processed.",
-            title="🏔️ Collection Finished",
-            priority="high"
-        )
-        
-        # Self-unschedule
-        unschedule()
-        if state_path.exists(): state_path.unlink()
-        return
-
-    # Perform capture with logging info
-    step_info = {"step_index": current_index + 1, "total_steps": len(steps), "type": "PLAN_STEP"}
-    _collect_internal(config=config, data_root=data_root, step_info=step_info)
-    
-    # Log detailed progress status
-    progress = current_index + 1
     total = len(steps)
-    percentage = round((progress / total) * 100, 1)
-    log_event("PROGRESS", "STATUS", {
-        "progress": progress,
-        "total": total,
-        "percentage": percentage
-    })
+    print(f"Starting plan execution ({total} steps)...")
     
-    # Notifications for milestones
-    if progress == 1:
-        send_notification(
-            f"First capture of the plan successfully completed.",
-            title="🏔️ First Capture Complete"
-        )
-    elif progress in [int(total * 0.25), int(total * 0.50), int(total * 0.75)]:
-        send_notification(
-            f"Collection is {int(percentage)}% complete ({progress}/{total} captures).",
-            title="🏔️ Collection Progress"
-        )
-    
-    # Calculate next step
-    state["step_index"] += 1
-    if state["step_index"] < len(steps):
-        next_interval = parse_interval(steps[state["step_index"]])
-        state["next_run"] = now + next_interval
-    
-    # Send periodic progress updates (every 10 steps)
-    if state["step_index"] % 10 == 0:
-        send_notification(
-            f"Progress: {state['step_index']}/{len(steps)} captures complete.",
-            title="🏔️ Collection Update"
-        )
-    
-    # Create data dir if not exists
-    Path(data_root).mkdir(parents=True, exist_ok=True)
-    with open(state_path, "w") as f:
-        json.dump(state, f)
-    
-    print(f"Step {current_index + 1}/{len(steps)} complete. Next run at {datetime.fromtimestamp(state['next_run'], UTC)}")
+    for i in range(start_index, total):
+        step = steps[i]
+        if step.lower() == "stop":
+            print("Plan complete.")
+            break
+            
+        # 1. Perform Capture
+        step_info = {"step_index": i + 1, "total_steps": total, "type": "PLAN_STEP"}
+        perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
+        
+        # 2. Wait
+        wait_time = parse_interval(step)
+        print(f"  Waiting {wait_time}s until next capture...")
+        log_event("PROGRESS", "STATUS", {"progress": i + 1, "total": total, "percentage": round(((i+1)/total)*100, 1)})
+        time.sleep(wait_time)
+
+def send_notification(message: str, title: str = "Mountain Collector"):
+    topic = os.environ.get("NTFY_TOPIC")
+    if not topic and Path(NTFY_KEY_FILE).exists():
+        with open(NTFY_KEY_FILE, "r") as f:
+            topic = f.read().strip()
+            
+    if topic:
+        try:
+            requests.post(
+                f"https://ntfy.sh/{topic}",
+                data=message,
+                headers={"Title": title},
+                timeout=5
+            )
+        except: pass
 
 @app.command()
-def log(follow: bool = True):
+def tail(log_path: str = LOG_FILE, follow: bool = True):
     """
-    Tails the collection log and shows service status.
+    Pretty-prints the collection log.
     """
-    # Check service status
-    try:
-        status_output = subprocess.check_output(["launchctl", "list"], text=True)
-        is_running = "com.mountain.collector" in status_output
-        if is_running:
-            print("🟢 Service 'com.mountain.collector' is ACTIVE.")
-        else:
-            print("⚪ Service 'com.mountain.collector' is NOT RUNNING (unscheduled).")
-    except:
-        print("❓ Could not determine service status.")
-
-    log_path = Path(COLLECTION_LOG)
+    log_path = Path(log_path)
     if not log_path.exists():
-        print(f"No log file found at {COLLECTION_LOG}")
+        print(f"Log file {log_path} not found.")
         return
 
-    print(f"\nLast 10 entries from {COLLECTION_LOG}:")
-    print("-" * 80)
-    
-    # Simple tail logic
     def print_logs(lines):
         for line in lines:
             try:
@@ -435,7 +360,7 @@ def notebook_start(port: int = 8890, data_root: str = None):
     pid_path.write_text(str(process.pid))
     
     print(f"Notebook server started with PID {process.pid}.")
-    print(f"Browser URL: http://tommys-mac-mini.tail59a169.ts.net:{port}/notebooks/captures.ipynb")
+    print(f"Browser URL: http://127.0.0.1:{port}/notebooks/captures.ipynb")
 
 @notebook_app.command("stop")
 def notebook_stop():

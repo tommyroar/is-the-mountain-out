@@ -63,6 +63,17 @@ To reduce redundancy while maintaining atmospheric diversity, the `tools/prune_d
 | 2026-03-11 | **CLASSIFIED**| Manual labeling of 1,260 images completed |
 | 2026-03-12 | **ACTIVE**    | Phase 2: 30-Day "Diffuse Spring" Solar Plan (21 images/day) |
 
+## Phase 1 Training Results (Established 2026-03-11)
+After establishment of the ground truth labels, the baseline model was fine-tuned using the following configuration:
+- **Optimizer:** Adam (LR: 0.0001)
+- **Epochs:** 5
+- **Balance Strategy:** 17x Oversampling of "Out" class.
+- **Hardware:** MPS (Metal Performance Shaders).
+
+### Current Model Performance (Regression Suite):
+- ✅ **Darkness Test:** 100% accurate in predicting "Not Out" for 0.0 brightness frames.
+- ✅ **Visibility Test:** 100% accurate in identifying confirmed "Mountain Out" frames from Phase 1.
+
 ## A/B Testing: METAR Ablation Study (2026-03-11)
 A systematic A/B comparison was performed to determine if METAR weather data provides unique signal or if it is redundant with the vision backbone.
 
@@ -72,10 +83,9 @@ A systematic A/B comparison was performed to determine if METAR weather data pro
 | **Full METAR (Real-time)** | 0.499 | **0.700** | **0.556** |
 | **Sparse METAR (Daily)** | 0.507 | 0.544 | 0.500 |
 
-### Conclusion:
-1. **Redundancy:** The `convnext_tiny` vision features are highly correlated with METAR data. The model can effectively "see" the visibility and ceiling from the image alone.
-2. **Precision Benefit:** Real-time METAR data provides a boost to **Precision (0.70 vs 0.55)**, suggesting it acts as a reliable "sanity check" that suppresses false-positive predictions.
-3. **Frequency:** High-frequency METAR updates are **unnecessary**. Daily or hourly syncs are sufficient to capture the relevant atmospheric trends.
+### Final Architecture Decision:
+1. **Retention of METAR:** While Vision Only achieved higher F1, **Full METAR** provided a critical **26% boost in Precision**. For a public notification system, minimizing false positives (announcing the mountain is out when it isn't) is the highest priority.
+2. **High-Frequency Synchronization:** A/B tests showed that "Sparse" weather data significantly degraded precision. **The collector will maintain 1:1 image-to-METAR synchronization** to ensure the model has the most accurate atmospheric state at the micro-level.
 
 ## Phase 2: Spring Collection (Phase 2)
 **Goal:** Gather high-variance data during March/April when visibility windows are more frequent.

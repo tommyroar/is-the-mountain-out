@@ -193,19 +193,19 @@ if __name__ == "__main__":
     # processed_data = processed_data[:50]
     print(f"Running experiment on all {len(processed_data)} labeled images...", flush=True)
 
-    # Add day-grouping for Sparse METAR
-    # Map YYYYMMDD -> first METAR vector of that day
-    day_weather_map = {}
-    for item in processed_data:
-        day = item['path'].split('/')[0]
-        if day not in day_weather_map:
-            day_weather_map[day] = item['weather']
-    
+    # Map every image to the most recent UNIQUE weather vector that preceded it
+    # This perfectly models our new collector deduplication logic
+    unique_weather_history = []
     sparse_data = []
+    
+    current_weather = [0.0, 1.0] # Default
     for item in processed_data:
-        day = item['path'].split('/')[0]
+        actual_weather = item['weather']
+        if actual_weather != current_weather:
+            current_weather = actual_weather
+        
         new_item = item.copy()
-        new_item['weather'] = day_weather_map[day]
+        new_item['weather'] = current_weather
         sparse_data.append(new_item)
 
     results = []
