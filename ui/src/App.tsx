@@ -125,7 +125,7 @@ function App() {
         if (window.location.protocol === 'https:') {
           currentApiBase = window.location.origin
         } else {
-          const configRes = await fetch('/config.json')
+          const configRes = await fetch('config.json')
           if (configRes.ok) {
             const config = await configRes.json()
             currentApiBase = `http://${window.location.hostname}:${config.API_PORT}`
