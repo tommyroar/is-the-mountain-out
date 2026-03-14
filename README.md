@@ -26,6 +26,11 @@ This system performs online learning using Parameter-Efficient Fine-Tuning (PEFT
 1. Configure `mountain.toml` in the root directory for target mountain details, webcams, training parameters, and collection schedules.
 2. Initialize the environment: `uv venv && uv pip install -e .`
 
+### Network Access
+When running on the local network or via Tailscale, the classifier is available at:
+- **Tailscale:** https://tommys-mac-mini.tail59a169.ts.net/classify/
+- **Local:** http://tommys-mac-mini.local:5173
+
 ### Commands
 All commands should be run from the root directory:
 ```bash

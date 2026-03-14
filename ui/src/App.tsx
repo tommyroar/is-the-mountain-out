@@ -28,7 +28,7 @@ function App() {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [apiBase, setApiBase] = useState<string>(`http://${window.location.hostname}:8000`)
+  const [apiBase, setApiBase] = useState<string>(`http://tommys-mac-mini.local:8001`)
   const [imageSize, setImageSize] = useState<number>(250)
   
   // Selection box state
@@ -61,14 +61,19 @@ function App() {
     const initApp = async () => {
       let currentApiBase = apiBase
       try {
-        const configRes = await fetch('/config.json')
-        if (configRes.ok) {
-          const config = await configRes.json()
-          currentApiBase = `http://${window.location.hostname}:${config.API_PORT}`
-          setApiBase(currentApiBase)
+        // If we are on HTTPS (Tailscale Serve), we use relative paths for everything
+        if (window.location.protocol === 'https:') {
+          currentApiBase = window.location.origin
+        } else {
+          const configRes = await fetch('/config.json')
+          if (configRes.ok) {
+            const config = await configRes.json()
+            currentApiBase = `http://${window.location.hostname}:${config.API_PORT}`
+          }
         }
+        setApiBase(currentApiBase)
       } catch (err) {
-        console.warn("Could not load config.json, using default", err)
+        console.warn("Could not load config, using default", err)
       }
       fetchData(currentApiBase)
     }
