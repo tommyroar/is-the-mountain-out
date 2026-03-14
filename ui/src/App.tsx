@@ -31,6 +31,66 @@ function App() {
   const [apiBase, setApiBase] = useState<string>(`http://tommys-mac-mini.local:8001`)
   const [imageSize, setImageSize] = useState<number>(250)
   
+  // Pinch to zoom state
+  const touchStartDist = useRef<number | null>(null)
+  const initialImageSize = useRef<number>(250)
+
+  // Trackpad pinch (wheel + ctrl)
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault()
+        const zoomSpeed = 2
+        setImageSize(prev => {
+          const next = prev - e.deltaY * zoomSpeed
+          return Math.min(Math.max(next, 100), 800)
+        })
+      }
+    }
+    window.addEventListener('wheel', handleWheel, { passive: false })
+    return () => window.removeEventListener('wheel', handleWheel)
+  }, [])
+
+  // iOS Pinch
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dist = Math.hypot(
+          e.touches[0].pageX - e.touches[1].pageX,
+          e.touches[0].pageY - e.touches[1].pageY
+        )
+        touchStartDist.current = dist
+        initialImageSize.current = imageSize
+      }
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && touchStartDist.current !== null) {
+        e.preventDefault()
+        const dist = Math.hypot(
+          e.touches[0].pageX - e.touches[1].pageX,
+          e.touches[0].pageY - e.touches[1].pageY
+        )
+        const scale = dist / touchStartDist.current
+        const next = initialImageSize.current * scale
+        setImageSize(Math.min(Math.max(next, 100), 800))
+      }
+    }
+
+    const handleTouchEnd = () => {
+      touchStartDist.current = null
+    }
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: false })
+    window.addEventListener('touchmove', handleTouchMove, { passive: false })
+    window.addEventListener('touchend', handleTouchEnd)
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [imageSize])
+  
   // Selection box state
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -244,8 +304,8 @@ function App() {
     <span className="text-[9px] text-zinc-500 uppercase font-black">Size</span>
     <input 
       type="range" 
-      min="150" 
-      max="500" 
+      min="100" 
+      max="800" 
       value={imageSize} 
       onChange={(e) => setImageSize(parseInt(e.target.value))}
       className="w-32 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
