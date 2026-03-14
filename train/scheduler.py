@@ -21,7 +21,7 @@ class Trainer:
         
         # Initialize components
         self.model_wrapper = ConvNextLoRAModel(
-            num_classes=2,
+            num_classes=3,
             rank=self.config_loader.lora_settings['rank'],
             alpha=self.config_loader.lora_settings['alpha'],
             target_modules=self.config_loader.lora_settings['target_modules'],
@@ -137,27 +137,43 @@ def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml
     w0 = 1.0 / (count_0 if count_0 > 0 else 1)
     w1 = 1.0 / (count_1 if count_1 > 0 else 1)
     
-    # Strategy: Oversample the minority class (Out = 1)
-    labels_out = {path: label for path, label in labels_map.items() if label == 1}
+    # Strategy: Oversample minority classes (Full = 1, Partial = 2)
+    labels_full = {path: label for path, label in labels_map.items() if label == 1}
+    labels_partial = {path: label for path, label in labels_map.items() if label == 2}
     labels_not_out = {path: label for path, label in labels_map.items() if label == 0}
-    
-    # We want at least a 1:4 ratio of Out:NotOut for better gradient signal
-    oversample_factor = max(1, len(labels_not_out) // (len(labels_out) * 4) if labels_out else 1)
-    
+
+    print(f"Dataset stats: {len(labels_not_out)} Not Out, {len(labels_full)} Full, {len(labels_partial)} Partial")
+
+    # We want a reasonable representation of all visible mountain frames
+    # Target: 1:2:2 ratio (NotOut : Full : Partial) or similar
+    max_not_out = len(labels_not_out)
+
     final_training_list = []
     # Add all 'Not Out' once
     for p, l in labels_not_out.items():
         final_training_list.append((p, l))
-    # Add 'Out' images multiple times
-    for p, l in labels_out.items():
-        for _ in range(oversample_factor):
-            final_training_list.append((p, l))
-            
+
+    # Oversample 'Full'
+    if labels_full:
+        full_factor = max(1, max_not_out // (len(labels_full) * 2))
+        for p, l in labels_full.items():
+            for _ in range(full_factor):
+                final_training_list.append((p, l))
+        print(f"  Oversampling 'Full' by {full_factor}x")
+
+    # Oversample 'Partial'
+    if labels_partial:
+        partial_factor = max(1, max_not_out // (len(labels_partial) * 2))
+        for p, l in labels_partial.items():
+            for _ in range(partial_factor):
+                final_training_list.append((p, l))
+        print(f"  Oversampling 'Partial' by {partial_factor}x")
+
     import random
     random.shuffle(final_training_list)
 
-    print(f"Dataset balanced: {len(labels_not_out)} 'Not Out' vs {len(labels_out) * oversample_factor} 'Out' (Factor: {oversample_factor}x)")
-    epochs = 5
+    print(f"Final training set size: {len(final_training_list)} samples.")
+
     batch_size = 16
     
     from torchvision import transforms

@@ -14,11 +14,76 @@ from train.config_loader import ConfigLoader
 
 app = typer.Typer()
 notebook_app = typer.Typer()
+ui_app = typer.Typer()
 app.add_typer(notebook_app, name="notebook", help="Manage the interactive capture browser.")
+app.add_typer(ui_app, name="ui", help="High-performance React-based classifier UI.")
 
 LOG_FILE = "data/collection.log"
 NOTEBOOK_PID_FILE = "data/notebook.pid"
+UI_PID_FILE = "data/ui.pid"
 NTFY_KEY_FILE = "ntfy.key"
+
+@ui_app.command("start")
+def ui_start(port: int = 5173, api_port: int = 8000, data_root: str = "data"):
+    """Starts the React frontend and FastAPI backend."""
+    pid_path = Path(UI_PID_FILE)
+    if pid_path.exists():
+        print(f"UI may already be running (PID file exists at {pid_path}).")
+        return
+
+    data_root_abs = str(Path(data_root).absolute())
+    print(f"Starting UI Services (API: {api_port}, Web: {port}) for: {data_root_abs}...")
+    
+    env = os.environ.copy()
+    env["MOUNTAIN_DATA_ROOT"] = data_root_abs
+
+    # 1. Start FastAPI Backend
+    api_cmd = [
+        "uv", "run", "python", "tools/classifier_server.py"
+    ]
+    # Override port in server if we wanted to be fancy, but keeping it simple for now
+    
+    # 2. Start Vite Frontend
+    ui_cmd = [
+        "npm", "run", "dev", "--", "--port", str(port), "--host", "0.0.0.0"
+    ]
+
+    # We use a simple trick to manage both: a small bash script that runs both
+    # and we save the PGID.
+    combined_cmd = f"MOUNTAIN_DATA_ROOT='{data_root_abs}' uv run python tools/classifier_server.py & cd ui && npm run dev -- --port {port} --host 0.0.0.0"
+    
+    process = subprocess.Popen(
+        combined_cmd,
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setpgrp,
+        env=env
+    )
+    
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(process.pid))
+    
+    print(f"UI services launched (PGID: {process.pid}).")
+    print(f"Access URL: http://tommys-mac-mini.tail59a169.ts.net:{port}")
+
+@ui_app.command("stop")
+def ui_stop():
+    """Stops the UI services."""
+    pid_path = Path(UI_PID_FILE)
+    if not pid_path.exists():
+        print("No UI PID file found.")
+        return
+    
+    try:
+        pid = int(pid_path.read_text().strip())
+        print(f"Stopping UI services (PGID {pid})...")
+        os.killpg(pid, signal.SIGTERM)
+        pid_path.unlink()
+        print("Services stopped.")
+    except Exception as e:
+        print(f"Cleanup: {e}")
+        if pid_path.exists(): pid_path.unlink()
 
 class WebcamStream:
     def __init__(self, url: str):
@@ -97,7 +162,10 @@ def log_event(event: str, status: str, metadata: Optional[Dict] = None):
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data", step_info: Optional[Dict] = None):
+import uuid
+import yaml
+
+def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str = "data", step_info: Optional[Dict] = None, session_uuid: Optional[str] = None):
     """Core logic to capture a single image and METAR data with UTC-based naming."""
     now_utc = datetime.now(UTC)
     date_str = now_utc.strftime("%Y%m%d")
@@ -110,9 +178,15 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
     image_dir.mkdir(parents=True, exist_ok=True)
     metar_dir.mkdir(parents=True, exist_ok=True)
     
+    # Session label file
+    session_labels_path = None
+    if session_uuid:
+        session_labels_path = Path(data_root) / f"captures.{session_uuid}.yaml"
+    
     print(f"[{now_utc}] Starting collection into {capture_dir}...")
     
     # Fetch and save METAR
+    # ... (existing METAR logic)
     metar_text = weather_fetcher.fetch_latest_metar()
     metar_success = False
     metar_path = metar_dir / "metar.txt"
@@ -149,6 +223,20 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             image_path = image_dir / filename
             cv2.imwrite(str(image_path), frame)
             print(f"  Source {source}: Saved as {filename}")
+
+            if session_labels_path:
+                labels = {}
+                if session_labels_path.exists():
+                    with open(session_labels_path, "r") as f:
+                        labels = yaml.safe_load(f) or {}
+                
+                # Add image relative to data_root
+                rel_path = str(image_path.relative_to(data_root))
+                if rel_path not in labels:
+                    labels[rel_path] = 0 # Default: unlabeled/none
+                    with open(session_labels_path, "w") as f:
+                        yaml.safe_dump(labels, f)
+                    print(f"  Updated session labels: {session_labels_path.name}")
             
             log_event("CAPTURE", "SUCCESS", {
                 "input_url": source,
@@ -184,9 +272,11 @@ def collect(config: str = "mountain.toml", data_root: str = "data"):
     """
     Performs a single capture of all configured webcams and METAR data.
     """
+    session_id = str(uuid.uuid4())[:8]
+    print(f"Session ID: {session_id}")
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    perform_capture(config_loader, weather_fetcher, data_root)
+    perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
 
 @app.command()
 def plan(
@@ -199,6 +289,8 @@ def plan(
     Executes a sequence of capture steps with defined waits.
     Example: uv run collect plan 600s 600s stop
     """
+    session_id = str(uuid.uuid4())[:8]
+    print(f"Session ID: {session_id}")
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     
@@ -213,7 +305,7 @@ def plan(
             
         # 1. Perform Capture
         step_info = {"step_index": i + 1, "total_steps": total, "type": "PLAN_STEP"}
-        perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info)
+        perform_capture(config_loader, weather_fetcher, data_root, step_info=step_info, session_uuid=session_id)
         
         # 2. Wait
         wait_time = parse_interval(step)
@@ -289,6 +381,8 @@ def live(config: str = "mountain.toml", data_root: str = "data"):
     """
     Runs continuous collection in the foreground using the configured interval.
     """
+    session_id = str(uuid.uuid4())[:8]
+    print(f"Session ID: {session_id}")
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     interval = config_loader.collection_seconds
@@ -296,7 +390,7 @@ def live(config: str = "mountain.toml", data_root: str = "data"):
     print(f"Starting live collection loop (interval: {interval}s). Press Ctrl+C to stop.")
     try:
         while True:
-            perform_capture(config_loader, weather_fetcher, data_root)
+            perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\nStopping live collection.")

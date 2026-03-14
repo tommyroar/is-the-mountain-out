@@ -3,7 +3,10 @@
 ## Overview
 This project implements an iterative, real-time image classification system to determine if Mount Rainier is "out" (visible). It uses Parameter-Efficient Fine-Tuning (PEFT) with LoRA on a `convnext_tiny` vision backbone, optimized for Apple Silicon (MPS).
 
-## Architectural Mandates
+## Technical Mandates
+- **Dynamic Port Allocation:** The classification backend MUST NOT assume port 8000 is available. It MUST detect if the port is in use, find an available one, and write its actual port to `data/classifier_server.port`.
+- **UI Configuration:** The React frontend MUST dynamically fetch its API base URL by reading `config.json` from its public directory at runtime, rather than using hardcoded values.
+- **Network Access:** The Vite development server MUST be configured with `--host 0.0.0.0` and include `tommys-mac-mini.local` in `server.allowedHosts` to support remote access via Tailscale and local mDNS.
 - **Hardware Acceleration:** All training and inference MUST target Metal Performance Shaders (`mps`) where available.
 - **Zero-Disk Training:** Live captures from webcams MUST be converted directly to PyTorch tensors and moved to the MPS device. Intermediate image files MUST NOT be saved to disk during the live training loop.
 - **Dual-Input Model:** The classification head MUST accept both vision features (768-dim) and a METAR weather vector (2-dim: visibility, ceiling).
@@ -28,6 +31,8 @@ All commands should be executed from the **root project directory**:
 - `uv run training once`: Single capture and training cycle (used by `launchctl`).
 - `uv run training batch <folder>`: Offline training on existing datasets.
 - `uv run collect`: Single capture of all sources to the `/data` directory.
+- `uv run classify start`: Launches the React classification interface (FastAPI + Vite).
+- `uv run classify stop`: Stops the classification services.
 - `uv run training schedule`: Installs the `launchctl` periodic service.
 - `uv run training unschedule`: Removes the `launchctl` periodic service.
 
