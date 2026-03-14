@@ -28,6 +28,8 @@ dependencies = [
     "torchaudio>=2.10.0",
     "torchvision>=0.25.0",
     "typer>=0.24.0",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
 ]
 
 [project.scripts]

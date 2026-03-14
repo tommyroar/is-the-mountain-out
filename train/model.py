@@ -6,7 +6,7 @@ from typing import List, Optional
 import os
 
 class ConvNextLoRAModel(nn.Module):
-    def __init__(self, num_classes: int = 2, rank: int = 8, alpha: int = 16, 
+    def __init__(self, num_classes: int = 3, rank: int = 8, alpha: int = 16, 
                  target_modules: List[str] = ["fc1", "fc2"], device: str = "mps",
                  checkpoint_dir: Optional[str] = None):
         super().__init__()
