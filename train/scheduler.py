@@ -182,6 +182,7 @@ def batch(
     print(f"Final training set size: {len(final_training_list)} samples.")
 
     batch_size = 16
+    total_batches = (len(final_training_list) + batch_size - 1) // batch_size
     
     from torchvision import transforms
     transform = transforms.Compose([
@@ -192,50 +193,102 @@ def batch(
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    for epoch in range(epochs):
-        random.shuffle(final_training_list)
-        print(f"Epoch {epoch+1}/{epochs}...")
+    import json
+    from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 
-        image_list, weather_list, label_list = [], [], []
-        epoch_losses = []
+    state_file = Path("data/training_state.json")
+    state_file.parent.mkdir(parents=True, exist_ok=True)
 
-        for rel_path, img_label in final_training_list:
-            img_p = data_root / rel_path
-            metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
-            if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
-            if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
-            if not metar_p.exists(): continue
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        epoch_task = progress.add_task("[green]Epochs...", total=epochs)
 
-            frame = cv2.imread(str(img_p))
-            if frame is None: continue
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            tensor = transform(frame_rgb).to(trainer.device)
+        for epoch in range(epochs):
+            random.shuffle(final_training_list)
+            batch_task = progress.add_task(f"[cyan]Epoch {epoch+1}/{epochs}...", total=total_batches)
 
-            with open(metar_p, 'r') as f: metar_text = f.read().strip()
-            vis, ceil = 0.0, 1.0
-            try:
-                obs = Metar.Metar(metar_text)
-                if obs.vis: vis = min(obs.vis.value('SM'), 10.0) / 10.0
-                if obs.sky:
-                    layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
-                    ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
-            except: pass
+            image_list, weather_list, label_list = [], [], []
+            epoch_losses = []
+            batches_complete = 0
 
-            image_list.append(tensor)
-            weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
-            label_list.append(torch.tensor(img_label))
+            for rel_path, img_label in final_training_list:
+                img_p = data_root / rel_path
+                metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
+                if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
+                if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
+                if not metar_p.exists(): continue
 
-            if len(image_list) >= batch_size:
+                frame = cv2.imread(str(img_p))
+                if frame is None: continue
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                tensor = transform(frame_rgb).to(trainer.device)
+
+                with open(metar_p, 'r') as f: metar_text = f.read().strip()
+                vis, ceil = 0.0, 1.0
+                try:
+                    obs = Metar.Metar(metar_text)
+                    if obs.vis: vis = min(obs.vis.value('SM'), 10.0) / 10.0
+                    if obs.sky:
+                        layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
+                        ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
+                except: pass
+
+                image_list.append(tensor)
+                weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
+                label_list.append(torch.tensor(img_label))
+
+                if len(image_list) >= batch_size:
+                    loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
+                    epoch_losses.append(loss)
+                    image_list, weather_list, label_list = [], [], []
+                    
+                    batches_complete += 1
+                    progress.update(batch_task, advance=1)
+                    
+                    avg_loss = sum(epoch_losses) / len(epoch_losses)
+                    progress.update(batch_task, description=f"[cyan]Epoch {epoch+1}/{epochs} (Loss: {avg_loss:.4f})")
+                    
+                    state = {
+                        "status": "running",
+                        "epoch": epoch + 1,
+                        "total_epochs": epochs,
+                        "batches_complete": batches_complete,
+                        "total_batches": total_batches,
+                        "current_loss": avg_loss
+                    }
+                    tmp_state = state_file.with_suffix(".tmp")
+                    with open(tmp_state, "w") as f:
+                        json.dump(state, f)
+                    tmp_state.rename(state_file)
+
+            if image_list:
                 loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
                 epoch_losses.append(loss)
-                image_list, weather_list, label_list = [], [], []
+                batches_complete += 1
+                progress.update(batch_task, advance=1)
+                avg_loss = sum(epoch_losses) / len(epoch_losses)
+                progress.update(batch_task, description=f"[cyan]Epoch {epoch+1}/{epochs} (Loss: {avg_loss:.4f})")
 
-        if image_list:
-            loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
-            epoch_losses.append(loss)
-
-        avg_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else float('nan')
-        print(f"  Epoch {epoch+1} complete. Avg loss: {avg_loss:.4f} ({len(epoch_losses)} batches)")
+            avg_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else float('nan')
+            progress.remove_task(batch_task)
+            progress.update(epoch_task, advance=1)
+            
+    if state_file.exists():
+        state = {
+            "status": "complete",
+            "epoch": epochs,
+            "total_epochs": epochs,
+            "batches_complete": total_batches,
+            "total_batches": total_batches,
+            "current_loss": avg_loss if 'avg_loss' in locals() else 0.0
+        }
+        with open(state_file.with_suffix(".tmp"), "w") as f:
+            json.dump(state, f)
+        state_file.with_suffix(".tmp").rename(state_file)
     
     trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
     print("\nTraining complete. Running final evaluation on the dataset...")
