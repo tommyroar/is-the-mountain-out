@@ -3,7 +3,8 @@ import sys
 import types
 import threading
 import time
-from unittest.mock import MagicMock, patch, call
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 import pytest
 
 
@@ -38,7 +39,6 @@ def _make_rumps_stub():
 _rumps_stub = _make_rumps_stub()
 sys.modules["rumps"] = _rumps_stub
 
-# Now safe to import
 from collect.tray import MountainTray  # noqa: E402
 
 
@@ -48,11 +48,12 @@ from collect.tray import MountainTray  # noqa: E402
 
 @pytest.fixture()
 def tray(tmp_path):
-    return MountainTray(session_id="test-session-123", data_root=str(tmp_path))
+    # 600s interval → 144 captures/day
+    return MountainTray(session_id="test-session-123", data_root=str(tmp_path), interval=600)
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Basic identity tests
 # ---------------------------------------------------------------------------
 
 def test_initial_title_is_mountain_emoji(tray):
@@ -63,37 +64,89 @@ def test_initial_status(tray):
     assert "Initializing" in tray.status_item.title
 
 
-def test_initial_capture_count_zero(tray):
-    assert tray.capture_count == 0
-    assert "0" in tray.count_item.title
-
-
 def test_session_id_shown_in_menu(tray):
     assert "test-session-123" in tray.session_item.title
 
 
-def test_update_state_increments_count_on_success(tray):
+# ---------------------------------------------------------------------------
+# Progress display tests
+# ---------------------------------------------------------------------------
+
+def test_daily_target_computed_from_interval(tray):
+    assert tray.daily_target == 144  # 86400 // 600
+
+
+def test_initial_progress_shows_zero(tray):
+    assert "0/144" in tray.progress_item.title
+    assert "0%" in tray.progress_item.title
+
+
+def test_initial_next_capture_is_placeholder(tray):
+    assert "—" in tray.next_item.title
+
+
+def test_progress_updates_after_successful_capture(tray):
     tray.update_state(status="Idle", success=True)
+    assert "1/144" in tray.progress_item.title
+    assert "0%" in tray.progress_item.title  # 1/144 rounds to 0%
+
+
+def test_progress_percentage_at_half(tray):
+    for _ in range(72):
+        tray.update_state(success=True)
+    assert "72/144" in tray.progress_item.title
+    assert "50%" in tray.progress_item.title
+
+
+def test_progress_caps_at_100_percent(tray):
+    for _ in range(200):
+        tray.update_state(success=True)
+    assert "100%" in tray.progress_item.title
+
+
+def test_next_capture_set_after_successful_capture(tray):
+    tray.update_state(success=True)
+    assert "—" not in tray.next_item.title
+    assert "Next Capture:" in tray.next_item.title
+
+
+def test_next_capture_not_updated_on_failure(tray):
+    tray.update_state(success=False)
+    assert "—" in tray.next_item.title
+
+
+def test_next_capture_not_updated_during_capturing_status(tray):
+    tray.update_state(status="Capturing...", success=False)
+    assert "—" in tray.next_item.title
+
+
+# ---------------------------------------------------------------------------
+# State update / count tests
+# ---------------------------------------------------------------------------
+
+def test_capture_count_increments_on_success(tray):
+    tray.update_state(success=True)
     assert tray.capture_count == 1
-    assert "1" in tray.count_item.title
 
 
-def test_update_state_does_not_increment_on_failure(tray):
-    tray.update_state(status="Error", success=False)
+def test_capture_count_does_not_increment_on_failure(tray):
+    tray.update_state(success=False)
     assert tray.capture_count == 0
 
 
-def test_update_state_sets_last_capture_time(tray):
-    assert tray.last_capture_time == "Never"
-    tray.update_state(success=True)
-    assert tray.last_capture_time != "Never"
-    assert "Last Capture" in tray.last_capture_item.title
-
-
-def test_update_state_updates_status_label(tray):
+def test_status_label_updates(tray):
     tray.update_state(status="Capturing...", success=False)
     assert "Capturing..." in tray.status_item.title
 
+
+def test_custom_interval_daily_target():
+    t = MountainTray("s", interval=3600)
+    assert t.daily_target == 24  # 86400 // 3600
+
+
+# ---------------------------------------------------------------------------
+# Quit / stop event tests
+# ---------------------------------------------------------------------------
 
 def test_on_quit_sets_stop_event(tray):
     assert not tray._stop_event.is_set()
@@ -107,17 +160,21 @@ def test_on_quit_calls_rumps_quit(tray):
     _rumps_stub.quit_application.assert_called_once()
 
 
-def test_service_loop_calls_service_func(tray):
+# ---------------------------------------------------------------------------
+# Service loop tests
+# ---------------------------------------------------------------------------
+
+def test_service_loop_calls_service_func(tmp_path):
+    fast_tray = MountainTray("s", data_root=str(tmp_path), interval=0)
     calls = []
 
     def fake_service():
         calls.append(1)
         if len(calls) >= 2:
-            tray._stop_event.set()
+            fast_tray._stop_event.set()
         return True
 
-    # Run with interval=0 so it loops fast
-    t = threading.Thread(target=tray.run, args=(fake_service, 0), daemon=True)
+    t = threading.Thread(target=fast_tray.run, args=(fake_service,), daemon=True)
     t.start()
     t.join(timeout=3)
 
@@ -132,7 +189,7 @@ def test_service_loop_stops_on_stop_event(tray):
         calls.append(1)
         return True
 
-    t = threading.Thread(target=tray.run, args=(fake_service, 0), daemon=True)
+    t = threading.Thread(target=tray.run, args=(fake_service,), daemon=True)
     t.start()
     t.join(timeout=2)
 
@@ -149,9 +206,9 @@ def test_service_loop_handles_exception_without_crashing(tray):
         tray._stop_event.set()
         return True
 
-    with patch("time.sleep"):  # skip actual sleeps in error handler
-        t = threading.Thread(target=tray.run, args=(flaky_service, 0), daemon=True)
+    with patch("time.sleep"):
+        t = threading.Thread(target=tray.run, args=(flaky_service,), daemon=True)
         t.start()
         t.join(timeout=3)
 
-    assert call_count[0] >= 2  # recovered and called again
+    assert call_count[0] >= 2

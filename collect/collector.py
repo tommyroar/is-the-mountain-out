@@ -126,7 +126,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
     
     logging.info(f"Starting tray service (Session: {session_id}, Interval: {interval}s)...")
 
-    tray_manager = MountainTray(session_id=session_id, data_root=data_root)
+    tray_manager = MountainTray(session_id=session_id, data_root=data_root, interval=interval)
 
     def capture_task():
         success = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
