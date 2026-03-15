@@ -23,12 +23,15 @@ def generate_progress_bar(completed: int, total: int, width: int = 10) -> str:
     empty = width - filled
     return "[" + "█" * filled + " " * empty + "]"
 
+SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
 class TrainingTray(rumps.App):
     def __init__(self, data_root: str = "data"):
-        super().__init__("Mountain Training", title="🏔️", quit_button=None)
+        super().__init__("Mountain Training", title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
         self.state_file = self.data_root / "training_state.json"
         self._last_state: Optional[Dict[str, Any]] = None
+        self._spinner_idx = 0
 
         # --- Static menu skeleton ---
         self.status_item       = rumps.MenuItem("Status: —")
@@ -62,7 +65,7 @@ class TrainingTray(rumps.App):
         state = self._read_state()
         if state is None:
             self.status_item.title = "Status: No training state found"
-            self.title = "🏔️"
+            self.title = "🗻"
             return
             
         # Check if state changed (or if it's running, we just update to spin the icon if needed)
@@ -76,14 +79,16 @@ class TrainingTray(rumps.App):
         status = state.get("status", "unknown")
         
         if status == "running":
-            # Simple spinner logic by toggling icon
-            self.title = "🌋" if self.title == "🏔️" else "🏔️"
+            # Simple spinner logic by cycling through braille frames
+            spinner = SPINNER[self._spinner_idx % len(SPINNER)]
+            self._spinner_idx += 1
+            self.title = f"🗻{spinner}"
             self.status_item.title = "Status: 🟢 Running"
         elif status == "complete":
-            self.title = "🏔️"
+            self.title = "🗻"
             self.status_item.title = "Status: ⚪️ Complete"
         else:
-            self.title = "🏔️"
+            self.title = "🗻"
             self.status_item.title = f"Status: {status}"
 
         # Epochs
