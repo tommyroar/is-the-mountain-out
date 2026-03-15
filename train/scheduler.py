@@ -195,12 +195,12 @@ def batch(
     for epoch in range(epochs):
         random.shuffle(final_training_list)
         print(f"Epoch {epoch+1}/{epochs}...")
-        
+
         image_list, weather_list, label_list = [], [], []
-        
+        epoch_losses = []
+
         for rel_path, img_label in final_training_list:
             img_p = data_root / rel_path
-            # ... (Existing logic to load image and metar)
             metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
             if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
             if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
@@ -210,7 +210,7 @@ def batch(
             if frame is None: continue
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             tensor = transform(frame_rgb).to(trainer.device)
-            
+
             with open(metar_p, 'r') as f: metar_text = f.read().strip()
             vis, ceil = 0.0, 1.0
             try:
@@ -220,19 +220,22 @@ def batch(
                     layers = [l for l in obs.sky if l[0] in ['BKN', 'OVC']]
                     ceil = min(layers[0][1].value('FT'), 10000.0) / 10000.0 if layers else 1.0
             except: pass
-            
+
             image_list.append(tensor)
             weather_list.append(torch.tensor([vis, ceil], dtype=torch.float32))
             label_list.append(torch.tensor(img_label))
-            
+
             if len(image_list) >= batch_size:
                 loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
+                epoch_losses.append(loss)
                 image_list, weather_list, label_list = [], [], []
 
         if image_list:
-            trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
-        
-        print(f"Epoch {epoch+1} complete.")
+            loss = trainer.model_wrapper.train_step(torch.stack(image_list), torch.stack(weather_list), torch.stack(label_list), trainer.optimizer)
+            epoch_losses.append(loss)
+
+        avg_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else float('nan')
+        print(f"  Epoch {epoch+1} complete. Avg loss: {avg_loss:.4f} ({len(epoch_losses)} batches)")
     
     trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
 
