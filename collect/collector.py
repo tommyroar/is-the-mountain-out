@@ -218,6 +218,15 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
 
             _sleep_until_next()
 
+    # Write initial state before starting tray so first _refresh() has data
+    write_state(data_root, make_state(
+        session_id=session_id, status="Starting...",
+        capture_count=0, plan_total=plan_total,
+        interval_seconds=fallback_interval,
+        next_capture_at=_next_capture_at(),
+        session_labels_file=str(session_labels_file),
+    ))
+
     t = threading.Thread(target=capture_loop, daemon=True)
     t.start()
 
