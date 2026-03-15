@@ -87,6 +87,34 @@ A systematic A/B comparison was performed to determine if METAR weather data pro
 1. **Retention of METAR:** While Vision Only achieved higher F1, **Full METAR** provided a critical **26% boost in Precision**. For a public notification system, minimizing false positives (announcing the mountain is out when it isn't) is the highest priority.
 2. **High-Frequency Synchronization:** A/B tests showed that "Sparse" weather data significantly degraded precision. **The collector will maintain 1:1 image-to-METAR synchronization** to ensure the model has the most accurate atmospheric state at the micro-level.
 
+## Phase 2 Training: 3-Class Reclassification (2026-03-14)
+
+The Phase 1 binary model (Out/Not Out) was retired in favor of a 3-class architecture to better reflect real-world visibility states.
+
+### Reclassification
+The original 1,260 binary labels were discarded. The full dataset of 1,319 images was re-labeled via the interactive classifier UI with three classes:
+- **Class 0 — Not Out:** 1,254 images (95.1%)
+- **Class 1 — Full:** 8 images (0.6%)
+- **Class 2 — Partial:** 57 images (4.3%)
+
+The split of "Out" frames into Full/Partial captures the important distinction between unobstructed peak views and partially-obscured sightings. The 18 binary "Out" frames became 8 Full + 57 Partial as more nuanced labeling revealed previously ambiguous frames.
+
+### Baseline Training Run
+- **Checkpoint:** `train/checkpoints/` (archived v1 binary → `checkpoints_v1_binary/`, v2 pre-reclassify → `checkpoints_v2_pre_reclassify/`)
+- **Mode:** Fresh (pretrained ConvNeXt weights only, no checkpoint loaded)
+- **Optimizer:** Adam (LR: 0.0001)
+- **Epochs:** 10
+- **Balance Strategy:** 78x oversampling of "Full", 11x oversampling of "Partial" → **2,505 samples/epoch**
+- **Hardware:** MPS (Metal Performance Shaders)
+
+### Notes
+Per-epoch loss is not yet logged by the batch training loop — qualitative validation via `uv run training once` is the current smoke test. Loss logging is a candidate for Phase 2 iteration.
+
+### Scheduler Changes
+- `Trainer.__init__` now accepts `fresh: bool` to skip checkpoint loading for baseline training
+- `batch` command now accepts `--labels path/to/labels.yaml` directly, decoupling training input from folder structure
+- Removed dead class-weight code that computed `w0`/`w1` but never passed them to `train_step`
+
 ## Phase 2: Spring Collection (Phase 2)
 **Goal:** Gather high-variance data during March/April when visibility windows are more frequent.
 

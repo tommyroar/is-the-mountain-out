@@ -90,11 +90,14 @@ def run_experiment(variant_name, data_list, folds=3):
         # Prepare training data with oversampling
         train_data = [data_list[i] for i in train_idx]
         train_out = [d for d in train_data if d['label'] == 1]
+        train_partial = [d for d in train_data if d['label'] == 2]
         train_not = [d for d in train_data if d['label'] == 0]
         
         # Balance the batch
-        oversample_factor = len(train_not) // (len(train_out) * 2) if train_out else 1
-        balanced_train = train_not + (train_out * oversample_factor)
+        oversample_factor_out = max(1, len(train_not) // (len(train_out) * 2)) if train_out else 1
+        oversample_factor_partial = max(1, len(train_not) // (len(train_partial) * 2)) if train_partial else 1
+        
+        balanced_train = train_not + (train_out * oversample_factor_out) + (train_partial * oversample_factor_partial)
         import random
         random.shuffle(balanced_train)
         
@@ -152,9 +155,9 @@ def run_experiment(variant_name, data_list, folds=3):
                 preds.append(pred)
                 true.append(item['label'])
         
-        f1 = f1_score(true, preds)
-        prec = precision_score(true, preds, zero_division=0)
-        rec = recall_score(true, preds, zero_division=0)
+        f1 = f1_score(true, preds, average='weighted')
+        prec = precision_score(true, preds, zero_division=0, average='weighted')
+        rec = recall_score(true, preds, zero_division=0, average='weighted')
         
         all_metrics.append({'f1': f1, 'precision': prec, 'recall': rec})
         print(f"    F1: {f1:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f}", flush=True)

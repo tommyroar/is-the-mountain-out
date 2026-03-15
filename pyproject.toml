@@ -30,11 +30,13 @@ dependencies = [
     "typer>=0.24.0",
     "fastapi>=0.135.1",
     "uvicorn>=0.41.0",
+    "pystray>=0.19.5",
+    "pillow>=12.1.1",
 ]
 
 [project.scripts]
 training = "train.scheduler:app"
-collect = "collect.collector:app"
+collect = "collect.collector:cli"
 classify = "collect.classifier:cli_wrapper"
 
 [tool.setuptools]

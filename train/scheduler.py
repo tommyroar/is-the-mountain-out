@@ -15,10 +15,10 @@ from train.model import ConvNextLoRAModel
 app = typer.Typer()
 
 class Trainer:
-    def __init__(self, config_path: str = "mountain.toml"):
+    def __init__(self, config_path: str = "mountain.toml", fresh: bool = False):
         self.config_loader = ConfigLoader(config_path)
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        
+
         # Initialize components
         self.model_wrapper = ConvNextLoRAModel(
             num_classes=3,
@@ -27,9 +27,10 @@ class Trainer:
             target_modules=self.config_loader.lora_settings['target_modules'],
             device=self.device
         )
-        
-        # Attempt to load checkpoint
-        self.model_wrapper.load_checkpoint(self.config_loader.checkpoint_dir)
+
+        # Attempt to load checkpoint (skip if fresh training requested)
+        if not fresh:
+            self.model_wrapper.load_checkpoint(self.config_loader.checkpoint_dir)
         
         # Lower learning rate for fine-tuning stability
         self.optimizer = optim.Adam(self.model_wrapper.model_dict.parameters(), lr=0.0001)
@@ -110,11 +111,26 @@ def live(config: str = "mountain.toml"):
     trainer.live_training_loop()
 
 @app.command()
-def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml"):
-    """Runs training on a folder. If labels.yaml is present in the folder, it uses those labels."""
-    trainer = Trainer(config)
-    data_root = Path(folder)
-    labels_file = data_root / "labels.yaml"
+def batch(
+    folder: Optional[str] = typer.Argument(None),
+    label: Optional[int] = None,
+    config: str = "mountain.toml",
+    epochs: int = 5,
+    fresh: bool = False,
+    labels: Optional[str] = typer.Option(None, "--labels", help="Path to labels.yaml (overrides folder/labels.yaml)"),
+):
+    """Runs training using a labels index. Pass --labels path/to/labels.yaml or a folder containing labels.yaml."""
+    trainer = Trainer(config, fresh=fresh)
+
+    if labels:
+        labels_file = Path(labels)
+        data_root = labels_file.parent
+    elif folder:
+        data_root = Path(folder)
+        labels_file = data_root / "labels.yaml"
+    else:
+        typer.echo("Error: provide a --labels file or a folder argument.", err=True)
+        raise typer.Exit(1)
     
     import yaml
     import cv2
@@ -127,15 +143,6 @@ def batch(folder: str, label: Optional[int] = None, config: str = "mountain.toml
         with open(labels_file, 'r') as f:
             labels_map = yaml.safe_load(f) or {}
         print(f"Loaded {len(labels_map)} labels from {labels_file}")
-    
-    # Calculate class weights based on labels_map
-    all_label_values = list(labels_map.values())
-    count_0 = all_label_values.count(0)
-    count_1 = all_label_values.count(1)
-    
-    # Avoid division by zero
-    w0 = 1.0 / (count_0 if count_0 > 0 else 1)
-    w1 = 1.0 / (count_1 if count_1 > 0 else 1)
     
     # Strategy: Oversample minority classes (Full = 1, Partial = 2)
     labels_full = {path: label for path, label in labels_map.items() if label == 1}
