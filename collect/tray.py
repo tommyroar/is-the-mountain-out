@@ -77,8 +77,12 @@ class MountainTray(rumps.App):
     # ------------------------------------------------------------------
 
     def _on_open_folder(self, _):
+        target = self._last_state.session_labels_file if self._last_state and self._last_state.session_labels_file else None
         if sys.platform == "darwin":
-            subprocess.Popen(["open", str(self.data_root)])
+            if target and Path(target).exists():
+                subprocess.Popen(["open", "-R", target])  # reveal file in Finder
+            else:
+                subprocess.Popen(["open", str(self.data_root)])
         else:
             subprocess.Popen(["xdg-open", str(self.data_root)])
 

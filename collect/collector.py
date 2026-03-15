@@ -66,7 +66,7 @@ def log_event(event: str, status: str, metadata: Optional[Dict] = None):
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str, session_uuid: Optional[str] = None, step_info: Optional[Dict] = None) -> bool:
+def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str, session_uuid: Optional[str] = None, step_info: Optional[Dict] = None) -> Optional[Path]:
     now_utc = datetime.now(UTC)
     date_str = now_utc.strftime("%Y%m%d")
     time_str = now_utc.strftime("%H%M%S_%f_UTC")
@@ -101,10 +101,10 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             image_path = image_dir / filename
             cv2.imwrite(str(image_path), frame)
             logging.info(f"Source {source}: Saved as {filename}")
-            return True
+            return image_path
         else:
             logging.warning(f"Source {source}: Capture failed.")
-            return False
+            return None
     finally:
         stream.release()
 
@@ -130,6 +130,13 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
 
     stop_event = threading.Event()
     capture_count = 0
+    session_labels_file = Path(data_root) / f"labels.{session_id}.yaml"
+
+    def _append_session_label(image_path: Path) -> None:
+        """Record this image as unlabeled in the session labels file."""
+        rel = str(image_path.relative_to(Path(data_root)))
+        with open(session_labels_file, "a") as f:
+            yaml.dump({rel: None}, f, default_flow_style=False)
 
     def capture_loop():
         nonlocal capture_count
@@ -140,23 +147,24 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
             write_state(data_root, make_state(
                 session_id=session_id, status="Capturing...",
                 capture_count=capture_count, interval_seconds=interval,
-                label_counts=read_label_counts(data_root),
+                session_labels_file=str(session_labels_file),
             ))
 
-            success = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+            image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
 
-            if success:
+            if image_path:
                 capture_count += 1
+                _append_session_label(image_path)
 
             now = datetime.now(timezone.utc)
             next_at = (now + timedelta(seconds=interval)).isoformat() if not is_once else None
 
             write_state(data_root, make_state(
-                session_id=session_id, status="Idle" if success else "Error",
+                session_id=session_id, status="Idle" if image_path else "Error",
                 capture_count=capture_count, interval_seconds=interval,
                 last_capture_at=now.isoformat(),
                 next_capture_at=next_at,
-                label_counts=read_label_counts(data_root),
+                session_labels_file=str(session_labels_file),
             ))
 
             if is_once:

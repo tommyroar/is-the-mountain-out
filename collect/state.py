@@ -25,6 +25,7 @@ class CollectorState:
     next_capture_at: Optional[str]       # ISO-8601 UTC
     label_counts: Dict[str, int]         # {"0": N, "1": N, "2": N}
     updated_at: str                      # ISO-8601 UTC
+    session_labels_file: Optional[str] = None  # path to labels.{uuid}.yaml
 
     @property
     def pct_complete(self) -> int:
@@ -79,6 +80,7 @@ def make_state(
     last_capture_at: Optional[str] = None,
     next_capture_at: Optional[str] = None,
     label_counts: Optional[Dict[str, int]] = None,
+    session_labels_file: Optional[str] = None,
 ) -> CollectorState:
     daily_target = 86400 // max(interval_seconds, 1)
     return CollectorState(
@@ -91,4 +93,5 @@ def make_state(
         next_capture_at=next_capture_at,
         label_counts=label_counts or {},
         updated_at=_now_iso(),
+        session_labels_file=session_labels_file,
     )
