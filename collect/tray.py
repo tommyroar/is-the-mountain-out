@@ -96,17 +96,9 @@ class MountainTray(rumps.App):
     # ------------------------------------------------------------------
 
     def run(self):
-        self._refresh()                              # populate immediately on startup
-        self._early_timer = rumps.Timer(self._early_refresh, 15)
-        self._early_timer.start()
+        self._refresh()          # populate immediately on startup
         self._timer.start()
         super().run()
-
-    def _early_refresh(self, _):
-        """One-shot refresh 15s after startup to catch the first capture result."""
-        self._early_timer.stop()
-        self._last_state = None  # force re-render even if state fields haven't changed
-        self._refresh()
 
 
 # ------------------------------------------------------------------

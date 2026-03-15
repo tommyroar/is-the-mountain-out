@@ -129,14 +129,16 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
     fallback_interval = config_loader.collection_seconds
 
     # Load plan if one exists
-    plan_timestamps = read_plan(data_root)
-    if plan_timestamps:
-        now_utc = datetime.now(timezone.utc)
-        # Skip past timestamps that are already in the past
-        plan_timestamps = [t for t in plan_timestamps
-                           if datetime.fromisoformat(t) > now_utc]
+    all_plan_timestamps = read_plan(data_root)
+    now_utc = datetime.now(timezone.utc)
+    if all_plan_timestamps:
+        past = [t for t in all_plan_timestamps if datetime.fromisoformat(t) <= now_utc]
+        plan_last_capture_at = past[-1] if past else None
+        plan_timestamps = [t for t in all_plan_timestamps if datetime.fromisoformat(t) > now_utc]
         logging.info(f"Loaded plan: {len(plan_timestamps)} captures remaining.")
     else:
+        plan_last_capture_at = None
+        plan_timestamps = []
         logging.info(f"No plan file found. Using fixed interval ({fallback_interval}s).")
 
     plan_total = len(plan_timestamps) if plan_timestamps else 0
@@ -189,17 +191,17 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
                 capture_count += 1
                 _append_session_label(image_path)
 
+            just_captured_at = plan_timestamps[plan_index] if plan_timestamps else datetime.now(timezone.utc).isoformat()
             if plan_timestamps:
                 plan_index += 1
 
-            now = datetime.now(timezone.utc)
             write_state(data_root, make_state(
                 session_id=session_id,
                 status="Idle" if image_path else "Error",
                 capture_count=capture_count,
                 plan_total=plan_total,
                 interval_seconds=fallback_interval,
-                last_capture_at=now.isoformat(),
+                last_capture_at=just_captured_at,
                 next_capture_at=_next_capture_at(),
                 session_labels_file=str(session_labels_file),
             ))
@@ -218,11 +220,13 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
 
             _sleep_until_next()
 
-    # Write initial state before starting tray so first _refresh() has data
+    # Write initial state before starting tray so first _refresh() has data.
+    # last_capture_at is derived from the plan (most recent past timestamp).
     write_state(data_root, make_state(
         session_id=session_id, status="Starting...",
         capture_count=0, plan_total=plan_total,
         interval_seconds=fallback_interval,
+        last_capture_at=plan_last_capture_at,
         next_capture_at=_next_capture_at(),
         session_labels_file=str(session_labels_file),
     ))
