@@ -11,20 +11,32 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import rumps
+try:
+    import rumps
+except ImportError:
+    rumps = None
 
-from collect.state import CollectorState, read_state
+from collect.state import CollectorState, read_state, fetch_remote_state
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 300  # seconds between state file reads
+REFRESH_INTERVAL = 2  # seconds between state file reads
 
 
-class MountainTray(rumps.App):
-    def __init__(self, data_root: str = "data"):
-        super().__init__("Mountain Collector", title="🗻", quit_button=None)
+SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+class MountainTray(rumps.App if rumps else object):
+    def __init__(self, data_root: str = "data", worker_url: Optional[str] = None, cloud_enabled: bool = False):
+        if rumps:
+            super().__init__("Mountain Collector", title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
+        self.worker_url = worker_url
+        self.cloud_enabled = cloud_enabled
         self._last_state: Optional[CollectorState] = None
+        self._spinner_idx = 0
+
+        if not rumps:
+            return
 
         # --- Static menu skeleton ---
         self.status_item       = rumps.MenuItem("Status: —")
@@ -55,9 +67,13 @@ class MountainTray(rumps.App):
     # ------------------------------------------------------------------
 
     def _refresh(self, _=None) -> None:
-        state = read_state(self.data_root)
+        if self.cloud_enabled and self.worker_url:
+            state = fetch_remote_state(f"{self.worker_url}/state")
+        else:
+            state = read_state(self.data_root)
+
         if state is None:
-            self.status_item.title = "Status: No state file found"
+            self.status_item.title = "Status: No state found"
             return
         if state == self._last_state:
             return
@@ -65,6 +81,14 @@ class MountainTray(rumps.App):
         self._render(state)
 
     def _render(self, state: CollectorState) -> None:
+        # Update menu bar title with a simple Fuji mountain and a spinner if active
+        if state.status == "capturing":
+            spinner = SPINNER[self._spinner_idx % len(SPINNER)]
+            self._spinner_idx += 1
+            self.title = f"🗻{spinner}"
+        else:
+            self.title = "🗻"
+
         self.status_item.title   = f"Status: {state.status}"
         total_str = str(state.plan_total) if state.plan_total > 0 else "?"
         self.progress_item.title = (
