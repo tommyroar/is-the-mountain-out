@@ -17,7 +17,7 @@ from collect.state import CollectorState, read_state
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 5  # seconds between state file reads
+REFRESH_INTERVAL = 300  # seconds between state file reads
 
 _CLASS_LABELS = {"0": "Not Out", "1": "Full", "2": "Partial"}
 
