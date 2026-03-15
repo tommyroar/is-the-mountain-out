@@ -29,16 +29,18 @@ class MountainTray(rumps.App):
         self._last_state: Optional[CollectorState] = None
 
         # --- Static menu skeleton ---
-        self.status_item   = rumps.MenuItem("Status: —")
-        self.progress_item = rumps.MenuItem("Progress: —")
-        self.next_item     = rumps.MenuItem("Next Capture: —")
-        self.session_item  = rumps.MenuItem("Session: —")
+        self.status_item      = rumps.MenuItem("Status: —")
+        self.progress_item    = rumps.MenuItem("Progress: —")
+        self.last_capture_item = rumps.MenuItem("Last Capture: —")
+        self.next_item        = rumps.MenuItem("Next Capture: —")
+        self.session_item     = rumps.MenuItem("Session: —")
         self.labels_header = rumps.MenuItem("Labels:")
         self.label_items   = {k: rumps.MenuItem(f"  {_CLASS_LABELS[k]}: —") for k in _CLASS_LABELS}
 
         self.menu = [
             self.status_item,
             self.progress_item,
+            self.last_capture_item,
             self.next_item,
             rumps.separator,
             self.session_item,
@@ -72,8 +74,10 @@ class MountainTray(rumps.App):
         self.progress_item.title = (
             f"Progress: {state.capture_count}/{state.daily_target} ({state.pct_complete}%)"
         )
+        last_str = _fmt_time(state.last_capture_at) or "—"
+        self.last_capture_item.title = f"Last Capture: {last_str}"
         next_str = _fmt_time(state.next_capture_at) or "—"
-        self.next_item.title    = f"Next Capture: {next_str}"
+        self.next_item.title         = f"Next Capture: {next_str}"
         self.session_item.title = f"Session: {state.session_id}"
 
         for k, item in self.label_items.items():
