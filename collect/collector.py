@@ -18,7 +18,7 @@ import rumps
 # Assuming 'train' and 'collect' are in the python path.
 from train.config_loader import ConfigLoader
 from collect.tray import MountainTray
-from collect.state import make_state, write_state, read_label_counts, write_plan, read_plan, PLAN_FILENAME
+from collect.state import make_state, write_state, read_state, read_label_counts, write_plan, read_plan, PLAN_FILENAME
 
 # --- Globals ---
 LOG_FILE = "data/collection.log"
@@ -53,6 +53,31 @@ class WeatherFetcher:
         except requests.RequestException as e:
             logging.warning(f"Error fetching METAR: {e}")
         return None
+
+def _derive_initial_last_capture_at(
+    plan_timestamps: List[str],
+    data_root: str,
+    now_utc,
+) -> Optional[str]:
+    """Return best known last_capture_at on startup.
+
+    Priority: most recent past plan timestamp → previous state file value
+    (only if it's actually in the past).
+    """
+    from datetime import datetime, timezone
+    past = [t for t in plan_timestamps if datetime.fromisoformat(t) <= now_utc]
+    if past:
+        return past[-1]
+    prev_state = read_state(data_root)
+    if prev_state and prev_state.last_capture_at:
+        try:
+            prev_ts = datetime.fromisoformat(prev_state.last_capture_at)
+            if prev_ts <= now_utc:
+                return prev_state.last_capture_at
+        except ValueError:
+            pass
+    return None
+
 
 def log_event(event: str, status: str, metadata: Optional[Dict] = None):
     log_path = Path(LOG_FILE)
@@ -129,22 +154,26 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
     fallback_interval = config_loader.collection_seconds
 
     # Load plan if one exists
-    all_plan_timestamps = read_plan(data_root)
+    all_plan_timestamps = read_plan(data_root) or []
     now_utc = datetime.now(timezone.utc)
+    plan_timestamps = [t for t in all_plan_timestamps if datetime.fromisoformat(t) > now_utc]
     if all_plan_timestamps:
-        past = [t for t in all_plan_timestamps if datetime.fromisoformat(t) <= now_utc]
-        plan_last_capture_at = past[-1] if past else None
-        plan_timestamps = [t for t in all_plan_timestamps if datetime.fromisoformat(t) > now_utc]
         logging.info(f"Loaded plan: {len(plan_timestamps)} captures remaining.")
     else:
-        plan_last_capture_at = None
-        plan_timestamps = []
-        logging.info(f"No plan file found. Using fixed interval ({fallback_interval}s).")
+        logging.info(f"No plan file found. Using fixed interval ({fallback_interval}s.")
+
+    plan_last_capture_at = _derive_initial_last_capture_at(all_plan_timestamps, data_root, now_utc)
+    plan_final_capture_at = all_plan_timestamps[-1] if all_plan_timestamps else None
 
     plan_total = len(plan_timestamps) if plan_timestamps else 0
-    plan_index = 0
+
+    # Seed count and index from previous state so restarts don't reset to zero.
+    _prev = read_state(data_root)
+    capture_count = _prev.capture_count if _prev else 0
+    plan_index = min(capture_count, plan_total)  # best-effort resume position
+
     stop_event = threading.Event()
-    capture_count = 0
+    last_capture_at = plan_last_capture_at  # tracked across all loop iterations
     session_labels_file = Path(data_root) / f"labels.{session_id}.yaml"
 
     def _append_session_label(image_path: Path) -> None:
@@ -173,7 +202,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
             time.sleep(min(1, end - time.monotonic()))
 
     def capture_loop():
-        nonlocal capture_count, plan_index
+        nonlocal capture_count, plan_index, last_capture_at
 
         while not stop_event.is_set():
             write_state(data_root, make_state(
@@ -181,17 +210,19 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
                 capture_count=capture_count,
                 plan_total=plan_total,
                 interval_seconds=fallback_interval,
+                last_capture_at=last_capture_at,
                 next_capture_at=_next_capture_at(),
                 session_labels_file=str(session_labels_file),
+                final_capture_at=plan_final_capture_at,
             ))
 
             image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
 
             if image_path:
                 capture_count += 1
+                last_capture_at = datetime.now(timezone.utc).isoformat()
                 _append_session_label(image_path)
 
-            just_captured_at = plan_timestamps[plan_index] if plan_timestamps else datetime.now(timezone.utc).isoformat()
             if plan_timestamps:
                 plan_index += 1
 
@@ -201,9 +232,10 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
                 capture_count=capture_count,
                 plan_total=plan_total,
                 interval_seconds=fallback_interval,
-                last_capture_at=just_captured_at,
+                last_capture_at=last_capture_at,
                 next_capture_at=_next_capture_at(),
                 session_labels_file=str(session_labels_file),
+                final_capture_at=plan_final_capture_at,
             ))
 
             if is_once:
@@ -229,6 +261,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
         last_capture_at=plan_last_capture_at,
         next_capture_at=_next_capture_at(),
         session_labels_file=str(session_labels_file),
+        final_capture_at=plan_final_capture_at,
     ))
 
     t = threading.Thread(target=capture_loop, daemon=True)

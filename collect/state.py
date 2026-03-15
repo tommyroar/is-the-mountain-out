@@ -27,6 +27,7 @@ class CollectorState:
     label_counts: Dict[str, int]         # {"0": N, "1": N, "2": N}
     updated_at: str                      # ISO-8601 UTC
     session_labels_file: Optional[str] = None  # path to labels.{uuid}.yaml
+    final_capture_at: Optional[str] = None      # ISO-8601 UTC of last planned capture
 
     @property
     def pct_complete(self) -> int:
@@ -106,6 +107,7 @@ def make_state(
     next_capture_at: Optional[str] = None,
     label_counts: Optional[Dict[str, int]] = None,
     session_labels_file: Optional[str] = None,
+    final_capture_at: Optional[str] = None,
 ) -> CollectorState:
     return CollectorState(
         session_id=session_id,
@@ -118,4 +120,5 @@ def make_state(
         label_counts=label_counts or {},
         updated_at=_now_iso(),
         session_labels_file=session_labels_file,
+        final_capture_at=final_capture_at,
     )

@@ -27,20 +27,23 @@ class MountainTray(rumps.App):
         self._last_state: Optional[CollectorState] = None
 
         # --- Static menu skeleton ---
-        self.status_item      = rumps.MenuItem("Status: —")
-        self.progress_item    = rumps.MenuItem("Progress: —")
+        self.status_item       = rumps.MenuItem("Status: —")
+        self.progress_item     = rumps.MenuItem("Progress: —")
         self.last_capture_item = rumps.MenuItem("Last Capture: —")
-        self.next_item        = rumps.MenuItem("Next Capture: —")
-        self.session_item     = rumps.MenuItem("Session: —")
+        self.next_item         = rumps.MenuItem("Next Capture: —")
+        self.final_item        = rumps.MenuItem("Final Capture: —")
+        self.session_item      = rumps.MenuItem("Session: —")
+        self.open_item         = rumps.MenuItem("Open Index File", callback=self._on_open_folder)
         self.menu = [
             self.status_item,
             self.progress_item,
             self.last_capture_item,
             self.next_item,
+            self.final_item,
             rumps.separator,
             self.session_item,
             rumps.separator,
-            rumps.MenuItem("Open Data Folder", callback=self._on_open_folder),
+            self.open_item,
             rumps.separator,
             rumps.MenuItem("Quit Capture Job", callback=self._on_quit),
         ]
@@ -71,7 +74,13 @@ class MountainTray(rumps.App):
         self.last_capture_item.title = f"Last Capture: {last_str}"
         next_str = _fmt_time(state.next_capture_at) or "—"
         self.next_item.title         = f"Next Capture: {next_str}"
+        final_str = _fmt_time(state.final_capture_at) or "—"
+        self.final_item.title        = f"Final Capture: {final_str}"
         self.session_item.title = f"Session: {state.session_id}"
+        if state.session_labels_file:
+            self.open_item.title = f"Open {state.session_labels_file}"
+        else:
+            self.open_item.title = "Open Index File"
 
     # ------------------------------------------------------------------
     # Menu callbacks
@@ -106,13 +115,16 @@ class MountainTray(rumps.App):
 # ------------------------------------------------------------------
 
 def _fmt_time(iso: Optional[str]) -> Optional[str]:
-    """Format an ISO-8601 UTC string as local HH:MM:SS, or None."""
+    """Format an ISO-8601 UTC string as local 'Mar 15 06:38' or 'Today 06:38', or None."""
     if not iso:
         return None
     try:
         from datetime import datetime, timezone
         dt = datetime.fromisoformat(iso).astimezone()
-        return dt.strftime("%H:%M:%S")
+        today = datetime.now(dt.tzinfo).date()
+        if dt.date() == today:
+            return f"Today {dt.strftime('%H:%M')}"
+        return dt.strftime("%b %-d %H:%M")
     except Exception:
         return None
 

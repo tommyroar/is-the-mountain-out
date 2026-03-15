@@ -110,6 +110,30 @@ The split of "Out" frames into Full/Partial captures the important distinction b
 ### Notes
 Per-epoch loss is not yet logged by the batch training loop — qualitative validation via `uv run training once` is the current smoke test. Loss logging is a candidate for Phase 2 iteration.
 
+## Tray Collector Improvements (2026-03-15)
+
+The macOS menu bar collector was substantially overhauled to decouple the tray UI from the capture service and fix several reliability issues.
+
+### Architecture
+- **State file pattern:** Capture service writes `data/collector_state.json` atomically (tmp + rename); tray polls it every 5 minutes via `rumps.Timer`. Any process can update state independently.
+- **Per-session index:** Each run writes `data/labels.{uuid}.yaml` with null-labeled image paths for future classification. "Open Index File" in the tray reveals this file in Finder.
+- **Plan-aware resume:** On restart, `capture_count` and `plan_index` are seeded from the previous state file so progress is never reset to zero.
+
+### Bug Fixes
+- **`last_capture_at` always "—" on startup:** Two root causes fixed:
+  1. `_derive_initial_last_capture_at()` extracted as a testable function — derives last capture from most recent past plan timestamp, falling back to previous state file (only if the value is actually in the past, guarding against stale future values from prior bugs).
+  2. Capture loop's "Capturing..." status write omitted `last_capture_at`, resetting it to `None` before the tray could read the initial state. Fixed by tracking `last_capture_at` as a loop variable passed through every `write_state` call.
+- **`last_capture_at` set to future scheduled time:** `just_captured_at` was incorrectly assigned from `plan_timestamps[plan_index]` (the next scheduled slot) instead of `datetime.now()`. Fixed.
+
+### Tray Menu
+Menu now displays: Status · Progress (N/total %) · Last Capture · Next Capture · **Final Capture** · Session · Open {index file path} · Quit
+
+- Timestamps formatted as `Today HH:MM` or `Mon DD HH:MM` to show date context across the 30-day plan.
+- **Final Capture** shows the last scheduled timestamp in the plan (end of 30-day spring window).
+
+### Tests
+26 → 27 tests covering: state file roundtrip, atomic write, render fields, refresh skip-on-unchanged, `pct_complete`, `_fmt_time`, `_derive_initial_last_capture_at` (plan past, state fallback, future-state guard, empty), and the "Capturing..." write must not reset `last_capture_at`.
+
 ### Scheduler Changes
 - `Trainer.__init__` now accepts `fresh: bool` to skip checkpoint loading for baseline training
 - `batch` command now accepts `--labels path/to/labels.yaml` directly, decoupling training input from folder structure

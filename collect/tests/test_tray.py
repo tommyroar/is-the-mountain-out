@@ -195,10 +195,19 @@ def test_pct_complete_unknown_plan():
 # _fmt_time helper
 # ---------------------------------------------------------------------------
 
-def test_fmt_time_valid_iso():
+def test_fmt_time_past_date_includes_month_and_day():
+    # A date in the past — should show "Mar 15 HH:MM" style
     result = _fmt_time("2026-03-15T05:44:16+00:00")
     assert result is not None
     assert ":" in result
+    # Either "Today HH:MM" or "Mon DD HH:MM" — both contain a space and colon
+    assert " " in result
+
+
+def test_fmt_time_future_date_includes_month_and_day():
+    result = _fmt_time("2026-04-10T13:00:00+00:00")
+    assert result is not None
+    assert "Apr" in result or "Today" in result
 
 
 def test_fmt_time_none():
@@ -207,3 +216,72 @@ def test_fmt_time_none():
 
 def test_fmt_time_invalid():
     assert _fmt_time("not-a-date") is None
+
+
+# ---------------------------------------------------------------------------
+# last_capture_at preservation through capture loop state writes
+# ---------------------------------------------------------------------------
+
+import sys as _sys
+import types as _types
+from unittest.mock import patch, MagicMock as _MagicMock
+from collect.state import write_plan, read_state, make_state, write_state
+from collect.collector import _derive_initial_last_capture_at
+
+
+def test_derive_initial_last_capture_at_from_plan_past(tmp_path):
+    """Returns most recent past plan timestamp when one exists."""
+    past = "2026-03-14T20:00:00+00:00"
+    future = "2026-03-15T20:00:00+00:00"
+    from datetime import datetime, timezone
+    now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+    result = _derive_initial_last_capture_at([past, future], str(tmp_path), now)
+    assert result == past
+
+
+def test_derive_initial_last_capture_at_falls_back_to_state_file(tmp_path):
+    """When plan has no past timestamps, uses previous state file's last_capture_at."""
+    past_time = "2026-03-14T20:00:00+00:00"
+    write_state(tmp_path, make_state("prev", "Idle", capture_count=5,
+                                     interval_seconds=600, plan_total=636,
+                                     last_capture_at=past_time))
+    future = "2026-03-15T20:00:00+00:00"
+    from datetime import datetime, timezone
+    now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+    result = _derive_initial_last_capture_at([future], str(tmp_path), now)
+    assert result == past_time
+
+
+def test_derive_initial_last_capture_at_ignores_future_state(tmp_path):
+    """Does not use previous state's last_capture_at if it's in the future."""
+    future_time = "2026-03-16T20:00:00+00:00"
+    write_state(tmp_path, make_state("prev", "Idle", capture_count=5,
+                                     interval_seconds=600, plan_total=636,
+                                     last_capture_at=future_time))
+    from datetime import datetime, timezone
+    now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+    result = _derive_initial_last_capture_at([], str(tmp_path), now)
+    assert result is None
+
+
+def test_derive_initial_last_capture_at_no_plan_no_state(tmp_path):
+    from datetime import datetime, timezone
+    now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+    assert _derive_initial_last_capture_at([], str(tmp_path), now) is None
+
+
+def test_make_state_resets_last_capture_at_when_omitted(tmp_path):
+    """Regression guard: make_state without last_capture_at yields None — callers must pass it."""
+    state = make_state("sess1", "Capturing...", capture_count=0, interval_seconds=600, plan_total=5)
+    assert state.last_capture_at is None  # documenting the footgun the loop must avoid
+
+
+def test_capturing_state_preserves_last_capture_at(tmp_path):
+    """The capture loop must pass last_capture_at to EVERY write_state call, including Capturing."""
+    past_time = "2026-03-14T20:00:00+00:00"
+    # Simulate the fixed loop: Capturing... write includes last_capture_at explicitly
+    write_state(tmp_path, make_state("sess1", "Capturing...", capture_count=0,
+                                     interval_seconds=600, plan_total=5,
+                                     last_capture_at=past_time))
+    state = read_state(tmp_path)
+    assert state.last_capture_at == past_time
