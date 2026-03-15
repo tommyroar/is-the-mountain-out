@@ -238,6 +238,11 @@ def batch(
         print(f"  Epoch {epoch+1} complete. Avg loss: {avg_loss:.4f} ({len(epoch_losses)} batches)")
     
     trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
+    print("\nTraining complete. Running final evaluation on the dataset...")
+    import sys
+    sys.path.append(str(Path.cwd()))
+    from tools.evaluate import evaluate
+    evaluate(trainer.config_loader.checkpoint_dir, str(labels_file))
 
 @app.command()
 def schedule(config: str = "mountain.toml"):
