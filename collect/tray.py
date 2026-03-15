@@ -1,36 +1,40 @@
+"""
+MountainTray — rumps menu bar app for the capture service.
+
+Reads collector_state.json via a rumps.Timer; entirely decoupled from
+the capture loop. Any process can update the state file and the menu
+will reflect it within REFRESH_INTERVAL seconds.
+"""
 import logging
 import subprocess
 import sys
-import threading
-import time
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import rumps
 
+from collect.state import CollectorState, read_state
+
 logger = logging.getLogger(__name__)
 
-_SECS_PER_DAY = 86400
+REFRESH_INTERVAL = 5  # seconds between state file reads
+
+_CLASS_LABELS = {"0": "Not Out", "1": "Full", "2": "Partial"}
 
 
 class MountainTray(rumps.App):
-    def __init__(self, session_id: str, data_root: str = "data", interval: int = 600):
+    def __init__(self, data_root: str = "data"):
         super().__init__("Mountain Collector", title="🗻", quit_button=None)
-        self.session_id = session_id
         self.data_root = Path(data_root).absolute()
-        self.interval = interval
-        self.daily_target = _SECS_PER_DAY // max(interval, 1)
+        self._last_state: Optional[CollectorState] = None
 
-        self.capture_count = 0
-        self.current_status = "Initializing..."
-        self._stop_event = threading.Event()
-        self._next_capture_at: Optional[datetime] = None
-
-        self.status_item = rumps.MenuItem(f"Status: {self.current_status}")
-        self.progress_item = rumps.MenuItem(self._progress_str())
-        self.next_item = rumps.MenuItem(self._next_str())
-        self.session_item = rumps.MenuItem(f"Session: {self.session_id}")
+        # --- Static menu skeleton ---
+        self.status_item   = rumps.MenuItem("Status: —")
+        self.progress_item = rumps.MenuItem("Progress: —")
+        self.next_item     = rumps.MenuItem("Next Capture: —")
+        self.session_item  = rumps.MenuItem("Session: —")
+        self.labels_header = rumps.MenuItem("Labels:")
+        self.label_items   = {k: rumps.MenuItem(f"  {_CLASS_LABELS[k]}: —") for k in _CLASS_LABELS}
 
         self.menu = [
             self.status_item,
@@ -39,88 +43,83 @@ class MountainTray(rumps.App):
             rumps.separator,
             self.session_item,
             rumps.separator,
-            rumps.MenuItem("Open Data Folder", callback=self.on_open_folder),
+            self.labels_header,
+            *self.label_items.values(),
             rumps.separator,
-            rumps.MenuItem("Quit Capture Job", callback=self.on_quit),
+            rumps.MenuItem("Open Data Folder", callback=self._on_open_folder),
+            rumps.separator,
+            rumps.MenuItem("Quit Capture Job", callback=self._on_quit),
         ]
 
-    # ------------------------------------------------------------------
-    # Display helpers
-    # ------------------------------------------------------------------
-
-    def _progress_str(self) -> str:
-        pct = min(100, int(self.capture_count / self.daily_target * 100))
-        return f"Progress: {self.capture_count}/{self.daily_target} ({pct}%)"
-
-    def _next_str(self) -> str:
-        if self._next_capture_at is None:
-            return "Next Capture: —"
-        return f"Next Capture: {self._next_capture_at.strftime('%H:%M:%S')}"
+        self._timer = rumps.Timer(self._refresh, REFRESH_INTERVAL)
 
     # ------------------------------------------------------------------
-    # State update (called from service loop thread)
+    # Timer callback — reads state file and renders
     # ------------------------------------------------------------------
 
-    def update_state(self, status: str = None, success: bool = True):
-        if success:
-            self.capture_count += 1
-            self._next_capture_at = datetime.now() + timedelta(seconds=self.interval)
-        if status:
-            self.current_status = status
-        self.status_item.title = f"Status: {self.current_status}"
-        self.progress_item.title = self._progress_str()
-        self.next_item.title = self._next_str()
+    def _refresh(self, _=None) -> None:
+        state = read_state(self.data_root)
+        if state is None:
+            self.status_item.title = "Status: No state file found"
+            return
+        if state == self._last_state:
+            return
+        self._last_state = state
+        self._render(state)
+
+    def _render(self, state: CollectorState) -> None:
+        self.status_item.title   = f"Status: {state.status}"
+        self.progress_item.title = (
+            f"Progress: {state.capture_count}/{state.daily_target} ({state.pct_complete}%)"
+        )
+        next_str = _fmt_time(state.next_capture_at) or "—"
+        self.next_item.title    = f"Next Capture: {next_str}"
+        self.session_item.title = f"Session: {state.session_id}"
+
+        for k, item in self.label_items.items():
+            count = state.label_counts.get(k, 0)
+            item.title = f"  {_CLASS_LABELS[k]}: {count}"
 
     # ------------------------------------------------------------------
     # Menu callbacks
     # ------------------------------------------------------------------
 
-    def on_open_folder(self, _):
+    def _on_open_folder(self, _):
         if sys.platform == "darwin":
             subprocess.Popen(["open", str(self.data_root)])
         else:
             subprocess.Popen(["xdg-open", str(self.data_root)])
 
-    def on_quit(self, _):
+    def _on_quit(self, _):
         logger.info("Quitting tray...")
-        self._stop_event.set()
         rumps.quit_application()
 
     # ------------------------------------------------------------------
-    # Main entry point
+    # Entry point
     # ------------------------------------------------------------------
 
-    def run(self, service_func: Callable, interval: int = None):
-        """Runs the tray icon; service_func is called on each capture cycle."""
-        if interval is not None:
-            self.interval = interval
-            self.daily_target = _SECS_PER_DAY // max(interval, 1)
-
-        logger.info("Starting icon.run()...")
-
-        def service_loop():
-            self.current_status = "Running"
-            while not self._stop_event.is_set():
-                try:
-                    self.update_state(status="Capturing...", success=False)
-                    success = service_func()
-                    self.update_state(status="Idle", success=success)
-                    for _ in range(self.interval):
-                        if self._stop_event.is_set():
-                            break
-                        time.sleep(1)
-                except Exception as e:
-                    logger.error(f"Error in service loop: {e}")
-                    self.update_state(status="Error", success=False)
-                    time.sleep(10)
-
-        t = threading.Thread(target=service_loop, daemon=True)
-        t.start()
+    def run(self):
+        self._refresh()          # populate immediately before first tick
+        self._timer.start()
         super().run()
-        logger.info("icon.run() has returned.")
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+def _fmt_time(iso: Optional[str]) -> Optional[str]:
+    """Format an ISO-8601 UTC string as local HH:MM:SS, or None."""
+    if not iso:
+        return None
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(iso).astimezone()
+        return dt.strftime("%H:%M:%S")
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    tray = MountainTray("test-uuid", interval=600)
-    tray.run(lambda: True)
+    MountainTray().run()

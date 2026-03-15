@@ -5,6 +5,7 @@ import subprocess
 import json
 import requests
 import signal
+import threading
 from pathlib import Path
 from datetime import datetime, UTC
 import cv2
@@ -12,10 +13,12 @@ from typing import Optional, Dict, List
 import uuid
 import yaml
 import logging
+import rumps
 
 # Assuming 'train' and 'collect' are in the python path.
 from train.config_loader import ConfigLoader
 from collect.tray import MountainTray
+from collect.state import make_state, write_state, read_label_counts
 
 # --- Globals ---
 LOG_FILE = "data/collection.log"
@@ -117,27 +120,61 @@ def cli(ctx, **kwargs):
 def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
     """Internal implementation for running the tray icon loop."""
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
+
     session_id = str(uuid.uuid4())[:8]
     config_loader = ConfigLoader(config_path)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
-    # For 'once', interval is for the service loop, not capture interval.
     interval = 1 if is_once else config_loader.collection_seconds
-    
+
     logging.info(f"Starting tray service (Session: {session_id}, Interval: {interval}s)...")
 
-    tray_manager = MountainTray(session_id=session_id, data_root=data_root, interval=interval)
+    stop_event = threading.Event()
+    capture_count = 0
 
-    def capture_task():
-        success = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
-        if is_once:
-            logging.info("Single capture complete. Shutting down tray in 2 seconds.")
-            time.sleep(2)
-            tray_manager.stop_event.set()
-            if tray_manager.icon: tray_manager.icon.stop()
-        return success
+    def capture_loop():
+        nonlocal capture_count
+        from datetime import datetime, timezone, timedelta
 
-    tray_manager.run(capture_task, interval=interval)
+        while not stop_event.is_set():
+            # Mark as capturing
+            write_state(data_root, make_state(
+                session_id=session_id, status="Capturing...",
+                capture_count=capture_count, interval_seconds=interval,
+                label_counts=read_label_counts(data_root),
+            ))
+
+            success = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+
+            if success:
+                capture_count += 1
+
+            now = datetime.now(timezone.utc)
+            next_at = (now + timedelta(seconds=interval)).isoformat() if not is_once else None
+
+            write_state(data_root, make_state(
+                session_id=session_id, status="Idle" if success else "Error",
+                capture_count=capture_count, interval_seconds=interval,
+                last_capture_at=now.isoformat(),
+                next_capture_at=next_at,
+                label_counts=read_label_counts(data_root),
+            ))
+
+            if is_once:
+                logging.info("Single capture complete.")
+                stop_event.set()
+                rumps.quit_application()
+                return
+
+            for _ in range(interval):
+                if stop_event.is_set():
+                    break
+                time.sleep(1)
+
+    t = threading.Thread(target=capture_loop, daemon=True)
+    t.start()
+
+    tray_manager = MountainTray(data_root=data_root)
+    tray_manager.run()
 
 @cli.command()
 @click.option('--config', default='mountain.toml', help='Path to config file.')
