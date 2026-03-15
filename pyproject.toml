@@ -37,6 +37,7 @@ dependencies = [
 
 [project.scripts]
 training = "train.scheduler:app"
+train-tray = "train.tray:cli"
 collect = "collect.collector:cli"
 classify = "collect.classifier:cli_wrapper"
 
