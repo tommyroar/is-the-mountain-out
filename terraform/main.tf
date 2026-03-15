@@ -27,7 +27,8 @@ job "mountain-training" {
       }
       
       env {
-        # Optional: any necessary environment variables
+        PYTHONUNBUFFERED = "1"
+        FORCE_COLOR      = "1"
       }
       
       resources {
