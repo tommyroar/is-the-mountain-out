@@ -61,8 +61,7 @@ def log_event(event: str, status: str, metadata: Optional[Dict] = None):
         "metadata": metadata or {}
     }
     with open(log_path, "a") as f:
-        f.write(json.dumps(entry) + "
-")
+        f.write(json.dumps(entry) + "\n")
 
 def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str, session_uuid: Optional[str] = None, step_info: Optional[Dict] = None) -> bool:
     now_utc = datetime.now(UTC)
@@ -171,8 +170,7 @@ def live(config: str, data_root: str):
             perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
             time.sleep(interval)
     except KeyboardInterrupt:
-        logging.info("
-Stopping live collection.")
+        logging.info("Stopping live collection.")
 
 if __name__ == "__main__":
     cli()
