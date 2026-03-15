@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 REFRESH_INTERVAL = 300  # seconds between state file reads
 
-_CLASS_LABELS = {"0": "Not Out", "1": "Full", "2": "Partial"}
-
 
 class MountainTray(rumps.App):
     def __init__(self, data_root: str = "data"):
@@ -34,9 +32,6 @@ class MountainTray(rumps.App):
         self.last_capture_item = rumps.MenuItem("Last Capture: —")
         self.next_item        = rumps.MenuItem("Next Capture: —")
         self.session_item     = rumps.MenuItem("Session: —")
-        self.labels_header = rumps.MenuItem("Labels:")
-        self.label_items   = {k: rumps.MenuItem(f"  {_CLASS_LABELS[k]}: —") for k in _CLASS_LABELS}
-
         self.menu = [
             self.status_item,
             self.progress_item,
@@ -44,9 +39,6 @@ class MountainTray(rumps.App):
             self.next_item,
             rumps.separator,
             self.session_item,
-            rumps.separator,
-            self.labels_header,
-            *self.label_items.values(),
             rumps.separator,
             rumps.MenuItem("Open Data Folder", callback=self._on_open_folder),
             rumps.separator,
@@ -79,10 +71,6 @@ class MountainTray(rumps.App):
         next_str = _fmt_time(state.next_capture_at) or "—"
         self.next_item.title         = f"Next Capture: {next_str}"
         self.session_item.title = f"Session: {state.session_id}"
-
-        for k, item in self.label_items.items():
-            count = state.label_counts.get(k, 0)
-            item.title = f"  {_CLASS_LABELS[k]}: {count}"
 
     # ------------------------------------------------------------------
     # Menu callbacks

@@ -135,12 +135,6 @@ def test_render_populates_session(tray, base_state):
     assert "abc123" in tray.session_item.title
 
 
-def test_render_populates_label_counts(tray, base_state):
-    tray._render(base_state)
-    assert "100" in tray.label_items["0"].title
-    assert "5"   in tray.label_items["1"].title
-    assert "20"  in tray.label_items["2"].title
-
 
 def test_render_shows_placeholder_when_next_is_none(tray, base_state):
     base_state.next_capture_at = None
