@@ -65,7 +65,7 @@ def base_state():
         session_id="abc123",
         status="Idle",
         capture_count=10,
-        daily_target=144,
+        plan_total=628,
         interval_seconds=600,
         last_capture_at="2026-03-15T05:44:16+00:00",
         next_capture_at="2026-03-15T05:54:16+00:00",
@@ -120,8 +120,8 @@ def test_render_populates_status(tray, base_state):
 
 def test_render_populates_progress(tray, base_state):
     tray._render(base_state)
-    assert "10/144" in tray.progress_item.title
-    assert "6%" in tray.progress_item.title   # 10/144 = 6%
+    assert "10/628" in tray.progress_item.title
+    assert "1%" in tray.progress_item.title   # 10/628 = 1%
 
 
 def test_render_populates_next_capture(tray, base_state):
@@ -172,17 +172,22 @@ def test_refresh_skips_rerender_when_state_unchanged(tray, data_root, base_state
 # ---------------------------------------------------------------------------
 
 def test_pct_complete_normal():
-    s = make_state("s", "Idle", capture_count=72, interval_seconds=600)
+    s = make_state("s", "Idle", capture_count=314, interval_seconds=600, plan_total=628)
     assert s.pct_complete == 50
 
 
 def test_pct_complete_caps_at_100():
-    s = make_state("s", "Idle", capture_count=999, interval_seconds=600)
+    s = make_state("s", "Idle", capture_count=999, interval_seconds=600, plan_total=628)
     assert s.pct_complete == 100
 
 
 def test_pct_complete_zero():
-    s = make_state("s", "Idle", capture_count=0, interval_seconds=600)
+    s = make_state("s", "Idle", capture_count=0, interval_seconds=600, plan_total=628)
+    assert s.pct_complete == 0
+
+
+def test_pct_complete_unknown_plan():
+    s = make_state("s", "Idle", capture_count=10, interval_seconds=600, plan_total=0)
     assert s.pct_complete == 0
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 STATE_FILENAME = "collector_state.json"
+PLAN_FILENAME  = "capture_plan.json"
 
 
 @dataclass
@@ -19,7 +20,7 @@ class CollectorState:
     session_id: str
     status: str                          # "Idle", "Capturing...", "Error"
     capture_count: int
-    daily_target: int
+    plan_total: int                      # total planned captures (0 = unknown)
     interval_seconds: int
     last_capture_at: Optional[str]       # ISO-8601 UTC
     next_capture_at: Optional[str]       # ISO-8601 UTC
@@ -29,9 +30,9 @@ class CollectorState:
 
     @property
     def pct_complete(self) -> int:
-        if self.daily_target <= 0:
+        if self.plan_total <= 0:
             return 0
-        return min(100, int(self.capture_count / self.daily_target * 100))
+        return min(100, int(self.capture_count / self.plan_total * 100))
 
 
 def _now_iso() -> str:
@@ -50,6 +51,29 @@ def read_state(data_root: str | Path) -> Optional[CollectorState]:
     try:
         data = json.loads(path.read_text())
         return CollectorState(**data)
+    except Exception:
+        return None
+
+
+def write_plan(data_root: str | Path, timestamps: list[str]) -> Path:
+    """Save a list of ISO-8601 UTC capture timestamps to capture_plan.json."""
+    path = Path(data_root) / PLAN_FILENAME
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({
+        "generated_at": _now_iso(),
+        "total": len(timestamps),
+        "captures": timestamps,
+    }, indent=2))
+    tmp.replace(path)
+    return path
+
+
+def read_plan(data_root: str | Path) -> Optional[list[str]]:
+    """Return list of ISO-8601 UTC capture timestamps, or None if no plan file."""
+    path = Path(data_root) / PLAN_FILENAME
+    try:
+        data = json.loads(path.read_text())
+        return data["captures"]
     except Exception:
         return None
 
@@ -77,17 +101,17 @@ def make_state(
     status: str,
     capture_count: int,
     interval_seconds: int,
+    plan_total: int = 0,
     last_capture_at: Optional[str] = None,
     next_capture_at: Optional[str] = None,
     label_counts: Optional[Dict[str, int]] = None,
     session_labels_file: Optional[str] = None,
 ) -> CollectorState:
-    daily_target = 86400 // max(interval_seconds, 1)
     return CollectorState(
         session_id=session_id,
         status=status,
         capture_count=capture_count,
-        daily_target=daily_target,
+        plan_total=plan_total,
         interval_seconds=interval_seconds,
         last_capture_at=last_capture_at,
         next_capture_at=next_capture_at,

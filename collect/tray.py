@@ -63,8 +63,9 @@ class MountainTray(rumps.App):
 
     def _render(self, state: CollectorState) -> None:
         self.status_item.title   = f"Status: {state.status}"
+        total_str = str(state.plan_total) if state.plan_total > 0 else "?"
         self.progress_item.title = (
-            f"Progress: {state.capture_count}/{state.daily_target} ({state.pct_complete}%)"
+            f"Progress: {state.capture_count}/{total_str} ({state.pct_complete}%)"
         )
         last_str = _fmt_time(state.last_capture_at) or "—"
         self.last_capture_item.title = f"Last Capture: {last_str}"
