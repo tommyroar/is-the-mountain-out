@@ -35,6 +35,18 @@ def save_labels(labels):
     with open(LABELS_PATH, "w") as f:
         yaml.safe_dump(labels, f)
 
+@app.get("/api/jobs")
+def get_jobs():
+    """Proxy Nomad jobs for the UI."""
+    try:
+        nomad_url = os.environ.get("NOMAD_ADDR", "http://127.0.0.1:4646")
+        response = requests.get(f"{nomad_url}/v1/jobs", timeout=2)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        # Fallback if Nomad is unreachable
+        return []
+
 @app.get("/api/images")
 def get_images(batch_size: int = 20, offset: int = 0):
     labels = load_labels()

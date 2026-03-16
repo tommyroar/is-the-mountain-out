@@ -142,13 +142,14 @@ def cli(ctx, **kwargs):
     if ctx.invoked_subcommand is None:
         ctx.invoke(tray)
 
-def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
+def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, session_id: Optional[str] = None):
     """Internal implementation for running the tray icon loop."""
     from datetime import datetime, timezone, timedelta
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    session_id = str(uuid.uuid4())[:8]
+    if not session_id:
+        session_id = str(uuid.uuid4())[:8]
     config_loader = ConfigLoader(config_path)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     fallback_interval = config_loader.collection_seconds
@@ -267,8 +268,14 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False):
     t = threading.Thread(target=capture_loop, daemon=True)
     t.start()
 
-    tray_manager = MountainTray(data_root=data_root)
-    tray_manager.run()
+    if rumps:
+        tray_manager = MountainTray(data_root=data_root, session_id=session_id)
+        tray_manager.run()
+    else:
+        logging.info("Headless mode: Waiting for loop to complete...")
+        while not stop_event.is_set():
+            time.sleep(1)
+
 
 @cli.command()
 @click.option('--data-root', default='data', help='Root directory for data storage.')
@@ -306,16 +313,18 @@ def schedule(data_root: str, days: int, lat: float, lon: float):
 @cli.command()
 @click.option('--config', default='mountain.toml', help='Path to config file.')
 @click.option('--data-root', default='data', help='Root directory for data storage.')
-def tray(config: str, data_root: str):
+@click.option('--session-id', default=None, help='Unique ID for this session.')
+def tray(config: str, data_root: str, session_id: str):
     """Runs continuous collection with a system tray icon."""
-    run_tray_loop(config, data_root, is_once=False)
+    run_tray_loop(config, data_root, is_once=False, session_id=session_id)
 
 @cli.command()
 @click.option('--config', default='mountain.toml', help='Path to config file.')
 @click.option('--data-root', default='data', help='Root directory for data storage.')
-def once(config: str, data_root: str):
+@click.option('--session-id', default=None, help='Unique ID for this session.')
+def once(config: str, data_root: str, session_id: str):
     """Performs a single capture, showing a tray icon briefly."""
-    run_tray_loop(config, data_root, is_once=True)
+    run_tray_loop(config, data_root, is_once=True, session_id=session_id)
 
 @cli.command()
 @click.option('--config', default='mountain.toml', help='Path to config file.')
