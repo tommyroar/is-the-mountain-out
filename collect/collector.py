@@ -212,6 +212,13 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
         nonlocal capture_count, plan_index, last_capture_at
 
         while not stop_event.is_set():
+            # Synchronize count with any other concurrent jobs (ad-hoc)
+            current_state = read_state(data_root, session_id)
+            if current_state:
+                capture_count = current_state.capture_count
+                if not last_capture_at:
+                    last_capture_at = current_state.last_capture_at
+
             write_state(data_root, make_state(
                 session_id=session_id, status="Capturing...",
                 capture_count=capture_count,
