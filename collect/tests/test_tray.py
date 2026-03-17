@@ -57,7 +57,7 @@ def data_root(tmp_path):
 
 @pytest.fixture()
 def tray(data_root):
-    return MountainTray(data_root=str(data_root))
+    return MountainTray(data_root=str(data_root), session_id="abc123")
 
 @pytest.fixture()
 def base_state():
@@ -92,21 +92,21 @@ def test_initial_status_placeholder(tray):
 
 def test_write_and_read_state_roundtrip(data_root, base_state):
     write_state(data_root, base_state)
-    result = read_state(data_root)
+    result = read_state(data_root, base_state.session_id)
     assert result == base_state
 
 
 def test_read_state_returns_none_when_missing(data_root):
-    assert read_state(data_root) is None
+    assert read_state(data_root, "missing_session") is None
 
 
 def test_write_is_atomic(data_root, base_state):
     """write_state uses a tmp file + rename — no partial reads."""
     write_state(data_root, base_state)
-    path = data_root / "collector_state.json"
+    path = data_root / f"collector_state_{base_state.session_id}.json"
     assert path.exists()
     # No .tmp file should remain
-    assert not (data_root / "collector_state.tmp").exists()
+    assert not (data_root / f"collector_state_{base_state.session_id}.tmp").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ def test_derive_initial_last_capture_at_from_plan_past(tmp_path):
     future = "2026-03-15T20:00:00+00:00"
     from datetime import datetime, timezone
     now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
-    result = _derive_initial_last_capture_at([past, future], str(tmp_path), now)
+    result = _derive_initial_last_capture_at([past, future], str(tmp_path), now, "sess")
     assert result == past
 
 
@@ -248,7 +248,7 @@ def test_derive_initial_last_capture_at_falls_back_to_state_file(tmp_path):
     future = "2026-03-15T20:00:00+00:00"
     from datetime import datetime, timezone
     now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
-    result = _derive_initial_last_capture_at([future], str(tmp_path), now)
+    result = _derive_initial_last_capture_at([future], str(tmp_path), now, "prev")
     assert result == past_time
 
 
@@ -260,14 +260,14 @@ def test_derive_initial_last_capture_at_ignores_future_state(tmp_path):
                                      last_capture_at=future_time))
     from datetime import datetime, timezone
     now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
-    result = _derive_initial_last_capture_at([], str(tmp_path), now)
+    result = _derive_initial_last_capture_at([], str(tmp_path), now, "prev")
     assert result is None
 
 
 def test_derive_initial_last_capture_at_no_plan_no_state(tmp_path):
     from datetime import datetime, timezone
     now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
-    assert _derive_initial_last_capture_at([], str(tmp_path), now) is None
+    assert _derive_initial_last_capture_at([], str(tmp_path), now, "any") is None
 
 
 def test_make_state_resets_last_capture_at_when_omitted(tmp_path):
@@ -283,5 +283,5 @@ def test_capturing_state_preserves_last_capture_at(tmp_path):
     write_state(tmp_path, make_state("sess1", "Capturing...", capture_count=0,
                                      interval_seconds=600, plan_total=5,
                                      last_capture_at=past_time))
-    state = read_state(tmp_path)
+    state = read_state(tmp_path, "sess1")
     assert state.last_capture_at == past_time

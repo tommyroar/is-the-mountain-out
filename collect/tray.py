@@ -22,7 +22,8 @@ REFRESH_INTERVAL = 10  # seconds between state file reads
 
 class MountainTray(rumps.App):
     def __init__(self, data_root: str = "data", session_id: Optional[str] = None):
-        name = f"Mountain Collector ({session_id})" if session_id else "Mountain Collector"
+        self.session_id = session_id or "persistent"
+        name = f"Mountain Collector ({self.session_id})" if self.session_id != "persistent" else "Mountain Collector"
         super().__init__(name, title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
         self._last_state: Optional[CollectorState] = None
@@ -36,6 +37,7 @@ class MountainTray(rumps.App):
         self.final_item        = rumps.MenuItem("Final Capture: —")
         self.session_item      = rumps.MenuItem("Session: —")
         self.open_item         = rumps.MenuItem("Open Index File", callback=self._on_open_folder)
+        self.ad_hoc_item       = rumps.MenuItem("Capture additional image", callback=self._on_capture_additional)
         self.menu = [
             self.progress_bar_item,
             rumps.separator,
@@ -48,6 +50,7 @@ class MountainTray(rumps.App):
             self.session_item,
             rumps.separator,
             self.open_item,
+            self.ad_hoc_item,
             rumps.separator,
             rumps.MenuItem("Quit Capture Job", callback=self._on_quit),
         ]
@@ -59,7 +62,7 @@ class MountainTray(rumps.App):
     # ------------------------------------------------------------------
 
     def _refresh(self, _=None) -> None:
-        state = read_state(self.data_root)
+        state = read_state(self.data_root, self.session_id)
         if state is None:
             self.status_item.title = "Status: No state file found"
             return
@@ -105,6 +108,15 @@ class MountainTray(rumps.App):
                 subprocess.Popen(["open", str(self.data_root)])
         else:
             subprocess.Popen(["xdg-open", str(self.data_root)])
+
+    def _on_capture_additional(self, _):
+        logger.info("Triggering ad-hoc capture...")
+        try:
+            # We trigger the nomad job via tools/capture_now.py
+            script_path = Path(__file__).parent.parent / "tools" / "capture_now.py"
+            subprocess.Popen(["python3", str(script_path)])
+        except Exception as e:
+            logger.error(f"Failed to trigger ad-hoc capture: {e}")
 
     def _on_quit(self, _):
         logger.info("Quitting tray...")

@@ -58,6 +58,7 @@ def _derive_initial_last_capture_at(
     plan_timestamps: List[str],
     data_root: str,
     now_utc,
+    session_id: str,
 ) -> Optional[str]:
     """Return best known last_capture_at on startup.
 
@@ -68,7 +69,7 @@ def _derive_initial_last_capture_at(
     past = [t for t in plan_timestamps if datetime.fromisoformat(t) <= now_utc]
     if past:
         return past[-1]
-    prev_state = read_state(data_root)
+    prev_state = read_state(data_root, session_id)
     if prev_state and prev_state.last_capture_at:
         try:
             prev_ts = datetime.fromisoformat(prev_state.last_capture_at)
@@ -149,7 +150,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     if not session_id:
-        session_id = str(uuid.uuid4())[:8]
+        session_id = "persistent" if not is_once else f"manual-{int(time.time())}"
     config_loader = ConfigLoader(config_path)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     fallback_interval = config_loader.collection_seconds
@@ -161,15 +162,15 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
     if all_plan_timestamps:
         logging.info(f"Loaded plan: {len(plan_timestamps)} captures remaining.")
     else:
-        logging.info(f"No plan file found. Using fixed interval ({fallback_interval}s.")
+        logging.info(f"No plan file found. Using fixed interval ({fallback_interval}s).")
 
-    plan_last_capture_at = _derive_initial_last_capture_at(all_plan_timestamps, data_root, now_utc)
+    plan_last_capture_at = _derive_initial_last_capture_at(all_plan_timestamps, data_root, now_utc, session_id)
     plan_final_capture_at = all_plan_timestamps[-1] if all_plan_timestamps else None
 
     plan_total = len(plan_timestamps) if plan_timestamps else 0
 
     # Seed count and index from previous state so restarts don't reset to zero.
-    _prev = read_state(data_root)
+    _prev = read_state(data_root, session_id)
     capture_count = _prev.capture_count if _prev else 0
     plan_index = min(capture_count, plan_total)  # best-effort resume position
 
