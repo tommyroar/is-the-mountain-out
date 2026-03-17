@@ -1,3 +1,8 @@
+variable "session_id" {
+  type    = string
+  default = ""
+}
+
 job "mountain-capture-single" {
   datacenters = ["dc1"]
   type        = "batch"
@@ -16,7 +21,7 @@ job "mountain-capture-single" {
         command = "/bin/bash"
         args    = [
           "-c",
-          "cd /Users/tommydoerr/dev/is-the-mountain-out && export SESSION_ID=manual-$(date +%s) && uv run collect once --session-id $SESSION_ID"
+          "cd /Users/tommydoerr/dev/is-the-mountain-out && SID=\"${var.session_id}\" && if [ -z \"$SID\" ]; then SID=\"manual-$(date +%s)\"; fi && uv run collect once --session-id $SID"
         ]
       }
 
