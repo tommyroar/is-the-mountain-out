@@ -177,12 +177,13 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
     stop_event = threading.Event()
     last_capture_at = plan_last_capture_at  # tracked across all loop iterations
     session_labels_file = Path(data_root) / f"labels.{session_id}.yaml"
+    trigger_file = Path(data_root) / f"trigger_{session_id}"
 
-    def _append_session_label(image_path: Path) -> None:
+    def _append_session_label(image_path: Path, is_adhoc: bool = False) -> None:
         rel = str(image_path.relative_to(Path(data_root)))
         entry = {
             rel: {
-                "type": "manual" if is_once else "scheduled"
+                "type": "manual" if is_adhoc else "scheduled"
             }
         }
         with open(session_labels_file, "a") as f:
@@ -193,32 +194,37 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
             return plan_timestamps[plan_index]
         return None
 
-    def _sleep_until_next() -> None:
-        """Sleep until the next scheduled capture time, or fallback interval."""
+    def _sleep_until_next() -> bool:
+        """Sleep until the next scheduled capture time, or fallback interval.
+        Returns True if a trigger file was detected.
+        """
         next_iso = _next_capture_at()
         if next_iso:
             target = datetime.fromisoformat(next_iso)
             wait = max(0, (target - datetime.now(timezone.utc)).total_seconds())
         else:
             wait = fallback_interval
+        
         logging.info(f"Next capture in {int(wait)}s.")
         end = time.monotonic() + wait
         while time.monotonic() < end:
             if stop_event.is_set():
-                return
+                return False
+            # Check for ad-hoc trigger file
+            if trigger_file.exists():
+                logging.info("Ad-hoc trigger detected!")
+                try:
+                    trigger_file.unlink()
+                except Exception: pass
+                return True
             time.sleep(min(1, end - time.monotonic()))
+        return False
 
     def capture_loop():
         nonlocal capture_count, plan_index, last_capture_at
 
         while not stop_event.is_set():
-            # Synchronize count with any other concurrent jobs (ad-hoc)
-            current_state = read_state(data_root, session_id)
-            if current_state:
-                capture_count = current_state.capture_count
-                if not last_capture_at:
-                    last_capture_at = current_state.last_capture_at
-
+            # Scheduled capture start
             write_state(data_root, make_state(
                 session_id=session_id, status="Capturing...",
                 capture_count=capture_count,
@@ -235,7 +241,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
             if image_path:
                 capture_count += 1
                 last_capture_at = datetime.now(timezone.utc).isoformat()
-                _append_session_label(image_path)
+                _append_session_label(image_path, is_adhoc=False)
 
             if plan_timestamps:
                 plan_index += 1
@@ -264,15 +270,49 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                 rumps.quit_application()
                 return
 
-            _sleep_until_next()
+            # Wait for next or trigger
+            while not stop_event.is_set():
+                is_adhoc = _sleep_until_next()
+                if not is_adhoc:
+                    # Normal scheduled wakeup
+                    break
+                
+                # Ad-hoc capture wakeup
+                write_state(data_root, make_state(
+                    session_id=session_id, status="Capturing (Ad-hoc)...",
+                    capture_count=capture_count,
+                    plan_total=plan_total,
+                    interval_seconds=fallback_interval,
+                    last_capture_at=last_capture_at,
+                    next_capture_at=_next_capture_at(),
+                    session_labels_file=str(session_labels_file),
+                    final_capture_at=plan_final_capture_at,
+                ))
+                
+                image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+                if image_path:
+                    capture_count += 1
+                    last_capture_at = datetime.now(timezone.utc).isoformat()
+                    _append_session_label(image_path, is_adhoc=True)
+                
+                write_state(data_root, make_state(
+                    session_id=session_id, status="Idle",
+                    capture_count=capture_count,
+                    plan_total=plan_total,
+                    interval_seconds=fallback_interval,
+                    last_capture_at=last_capture_at,
+                    next_capture_at=_next_capture_at(),
+                    session_labels_file=str(session_labels_file),
+                    final_capture_at=plan_final_capture_at,
+                ))
 
     # Write initial state before starting tray so first _refresh() has data.
     # last_capture_at is derived from the plan (most recent past timestamp).
     write_state(data_root, make_state(
         session_id=session_id, status="Starting...",
-        capture_count=0, plan_total=plan_total,
+        capture_count=capture_count, plan_total=plan_total,
         interval_seconds=fallback_interval,
-        last_capture_at=plan_last_capture_at,
+        last_capture_at=last_capture_at,
         next_capture_at=_next_capture_at(),
         session_labels_file=str(session_labels_file),
         final_capture_at=plan_final_capture_at,

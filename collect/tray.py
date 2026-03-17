@@ -112,9 +112,9 @@ class MountainTray(rumps.App):
     def _on_capture_additional(self, _):
         logger.info(f"Triggering ad-hoc capture for session {self.session_id}...")
         try:
-            # We trigger the nomad job via tools/capture_now.py
-            script_path = Path(__file__).parent.parent / "tools" / "capture_now.py"
-            subprocess.Popen(["python3", str(script_path), "--session-id", self.session_id])
+            trigger_file = self.data_root / f"trigger_{self.session_id}"
+            trigger_file.touch()
+            logger.info(f"Created trigger file: {trigger_file}")
         except Exception as e:
             logger.error(f"Failed to trigger ad-hoc capture: {e}")
 
