@@ -66,8 +66,17 @@ class MountainTray(rumps.App):
         if state is None:
             self.status_item.title = "Status: No state file found"
             return
-        if state == self._last_state:
-            return
+        
+        # Compare essential fields to decide if we need a rerender
+        if self._last_state:
+            is_same = (
+                state.capture_count == self._last_state.capture_count and
+                state.status == self._last_state.status and
+                state.next_capture_at == self._last_state.next_capture_at
+            )
+            if is_same:
+                return
+
         self._last_state = state
         self._render(state)
 
