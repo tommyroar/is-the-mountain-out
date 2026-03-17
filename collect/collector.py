@@ -150,7 +150,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     if not session_id:
-        session_id = "persistent" if not is_once else f"manual-{int(time.time())}"
+        session_id = str(uuid.uuid4())[:8]
     config_loader = ConfigLoader(config_path)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     fallback_interval = config_loader.collection_seconds
@@ -180,8 +180,13 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
 
     def _append_session_label(image_path: Path) -> None:
         rel = str(image_path.relative_to(Path(data_root)))
+        entry = {
+            rel: {
+                "type": "manual" if is_once else "scheduled"
+            }
+        }
         with open(session_labels_file, "a") as f:
-            yaml.dump({rel: None}, f, default_flow_style=False)
+            yaml.dump(entry, f, default_flow_style=False)
 
     def _next_capture_at() -> Optional[str]:
         if plan_timestamps and plan_index < len(plan_timestamps):
