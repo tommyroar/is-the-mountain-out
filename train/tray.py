@@ -16,12 +16,15 @@ logger = logging.getLogger(__name__)
 REFRESH_INTERVAL = 10  # seconds between state file reads
 
 
+SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
 class TrainingTray(rumps.App):
     def __init__(self, data_root: str = "data"):
         super().__init__("Mountain Training", title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
         self.state_file = self.data_root / "training_state.json"
         self._last_state: Optional[Dict[str, Any]] = None
+        self._spinner_idx = 0
 
         # --- Static menu skeleton ---
         self.progress_bar_item = rumps.MenuItem("—")
@@ -72,10 +75,16 @@ class TrainingTray(rumps.App):
         status = state.get("status", "unknown")
         
         if status == "running":
+            # Simple spinner logic by cycling through braille frames
+            spinner = SPINNER[self._spinner_idx % len(SPINNER)]
+            self._spinner_idx += 1
+            self.title = f"🗻{spinner}"
             self.status_item.title = "Status: 🟢 Running"
         elif status == "complete":
+            self.title = "🗻"
             self.status_item.title = "Status: ⚪️ Complete"
         else:
+            self.title = "🗻"
             self.status_item.title = f"Status: {status}"
 
         # Progress bar (based on batches)

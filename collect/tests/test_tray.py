@@ -102,6 +102,26 @@ def test_render_shows_placeholder_when_next_is_none(tray, base_state):
     assert "—" in tray.next_item.title
 
 
+def test_render_spinner_cycles(tray, base_state):
+    from collect.tray import SPINNER
+    base_state.status = "capturing"
+    
+    # First frame
+    tray._render(base_state)
+    assert tray.title == f"🗻{SPINNER[0]}"
+    
+    # Second frame
+    tray._render(base_state)
+    assert tray.title == f"🗻{SPINNER[1]}"
+    
+    # Wrap around (after len(SPINNER) calls)
+    tray._spinner_idx = len(SPINNER) - 1
+    tray._render(base_state)
+    assert tray.title == f"🗻{SPINNER[-1]}"
+    tray._render(base_state)
+    assert tray.title == f"🗻{SPINNER[0]}"
+
+
 # ---------------------------------------------------------------------------
 # _refresh reads from state file
 # ---------------------------------------------------------------------------
@@ -115,7 +135,7 @@ def test_refresh_reads_state_file(tray, data_root, base_state):
 
 def test_refresh_shows_error_when_no_state_file(tray):
     tray._refresh()
-    assert "No state file" in tray.status_item.title
+    assert "No state found" in tray.status_item.title
 
 
 def test_refresh_skips_rerender_when_state_unchanged(tray, data_root, base_state):

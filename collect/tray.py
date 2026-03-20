@@ -11,22 +11,34 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import rumps
+try:
+    import rumps
+except ImportError:
+    rumps = None
 
-from collect.state import CollectorState, read_state
+from collect.state import CollectorState, read_state, fetch_remote_state
 
 logger = logging.getLogger(__name__)
 
 REFRESH_INTERVAL = 10  # seconds between state file reads
 
 
-class MountainTray(rumps.App):
-    def __init__(self, data_root: str = "data", session_id: Optional[str] = None):
+SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+class MountainTray(rumps.App if rumps else object):
+    def __init__(self, data_root: str = "data", session_id: Optional[str] = None, worker_url: Optional[str] = None, cloud_enabled: bool = False):
         self.session_id = session_id or "persistent"
-        name = f"Mountain Collector ({self.session_id})" if self.session_id != "persistent" else "Mountain Collector"
-        super().__init__(name, title="🗻", quit_button=None)
+        if rumps:
+            name = f"Mountain Collector ({self.session_id})" if self.session_id != "persistent" else "Mountain Collector"
+            super().__init__(name, title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
+        self.worker_url = worker_url
+        self.cloud_enabled = cloud_enabled
         self._last_state: Optional[CollectorState] = None
+        self._spinner_idx = 0
+
+        if not rumps:
+            return
 
         # --- Static menu skeleton ---
         self.progress_bar_item = rumps.MenuItem("—")
@@ -62,9 +74,13 @@ class MountainTray(rumps.App):
     # ------------------------------------------------------------------
 
     def _refresh(self, _=None) -> None:
-        state = read_state(self.data_root, self.session_id)
+        if self.cloud_enabled and self.worker_url:
+            state = fetch_remote_state(f"{self.worker_url}/state")
+        else:
+            state = read_state(self.data_root, self.session_id)
+
         if state is None:
-            self.status_item.title = "Status: No state file found"
+            self.status_item.title = "Status: No state found"
             return
         
         # Compare essential fields to decide if we need a rerender
@@ -81,6 +97,14 @@ class MountainTray(rumps.App):
         self._render(state)
 
     def _render(self, state: CollectorState) -> None:
+        # Update menu bar title with spinner if actively capturing
+        if state.status == "capturing":
+            spinner = SPINNER[self._spinner_idx % len(SPINNER)]
+            self._spinner_idx += 1
+            self.title = f"🗻{spinner}"
+        else:
+            self.title = "🗻"
+
         # Progress bar as the first item in the menu
         bar_len = 20
         filled_len = int(round(bar_len * state.pct_complete / 100))
