@@ -16,7 +16,7 @@ try:
 except ImportError:
     rumps = None
 
-from collect.state import CollectorState, read_state, fetch_remote_state
+from collect.state import CollectorState, read_state
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,12 @@ REFRESH_INTERVAL = 10  # seconds between state file reads
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 class MountainTray(rumps.App if rumps else object):
-    def __init__(self, data_root: str = "data", session_id: Optional[str] = None, worker_url: Optional[str] = None, cloud_enabled: bool = False):
+    def __init__(self, data_root: str = "data", session_id: Optional[str] = None):
         self.session_id = session_id or "persistent"
         if rumps:
             name = f"Mountain Collector ({self.session_id})" if self.session_id != "persistent" else "Mountain Collector"
             super().__init__(name, title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
-        self.worker_url = worker_url
-        self.cloud_enabled = cloud_enabled
         self._last_state: Optional[CollectorState] = None
         self._spinner_idx = 0
 
@@ -74,10 +72,7 @@ class MountainTray(rumps.App if rumps else object):
     # ------------------------------------------------------------------
 
     def _refresh(self, _=None) -> None:
-        if self.cloud_enabled and self.worker_url:
-            state = fetch_remote_state(f"{self.worker_url}/state")
-        else:
-            state = read_state(self.data_root, self.session_id)
+        state = read_state(self.data_root, self.session_id)
 
         if state is None:
             self.status_item.title = "Status: No state found"

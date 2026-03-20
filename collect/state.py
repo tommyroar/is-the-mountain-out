@@ -58,17 +58,6 @@ def read_state(data_root: str | Path, session_id: str) -> Optional[CollectorStat
         return None
 
 
-def fetch_remote_state(url: str) -> Optional[CollectorState]:
-    """Fetch collector state from a remote Cloudflare Worker endpoint."""
-    import requests
-    try:
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        return CollectorState(**data)
-    except Exception as e:
-        print(f"Error fetching remote state: {e}")
-        return None
 
 
 def write_plan(data_root: str | Path, timestamps: list[str]) -> Path:
