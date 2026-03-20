@@ -16,7 +16,7 @@ def test_lora_initialization():
     
     # Check if peft wrapped the backbone
     from peft import PeftModel
-    assert isinstance(model_wrapper.model['backbone'], PeftModel)
+    assert isinstance(model_wrapper.model_dict['backbone'], PeftModel)
 
 def test_dual_input_batch_parameter_update():
     """Verify LoRA weights and classifier update after a batch training step."""
@@ -26,14 +26,14 @@ def test_dual_input_batch_parameter_update():
     
     # Get initial parameters
     initial_params = {}
-    for name, param in model_wrapper.model.named_parameters():
+    for name, param in model_wrapper.model_dict.named_parameters():
         initial_params[name] = param.clone().detach()
 
     # Create dummy image, weather tensor, and optimizer
     image_batch = torch.randn(batch_size, 3, 224, 224).to(device)
     weather_batch = torch.randn(batch_size, 2).to(device)
     label_batch = torch.randint(0, 2, (batch_size,)).to(device)
-    optimizer = optim.Adam(model_wrapper.model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model_wrapper.model_dict.parameters(), lr=0.001)
     
     # Perform training step
     model_wrapper.train_step(image_batch, weather_batch, label_batch, optimizer)
@@ -42,7 +42,7 @@ def test_dual_input_batch_parameter_update():
     updated_lora = False
     updated_classifier = False
     
-    for name, param in model_wrapper.model.named_parameters():
+    for name, param in model_wrapper.model_dict.named_parameters():
         if 'lora_' in name:
             if not torch.equal(initial_params[name], param):
                 updated_lora = True
@@ -66,7 +66,7 @@ def test_checkpoint_save_load(tmp_path):
     model2.load_checkpoint(checkpoint_dir)
     
     # Verify parameters match
-    for (n1, p1), (n2, p2) in zip(model1.model.named_parameters(), model2.model.named_parameters()):
+    for (n1, p1), (n2, p2) in zip(model1.model_dict.named_parameters(), model2.model_dict.named_parameters()):
         if 'lora_' in n1 or 'classifier' in n1:
             assert torch.equal(p1, p2), f"Parameter {n1} does not match after loading"
 

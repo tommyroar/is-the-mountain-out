@@ -13,15 +13,8 @@ import rumps
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 2  # seconds between state file reads
+REFRESH_INTERVAL = 10  # seconds between state file reads
 
-def generate_progress_bar(completed: int, total: int, width: int = 10) -> str:
-    if total == 0:
-        return "[" + " " * width + "]"
-    fraction = completed / total
-    filled = int(fraction * width)
-    empty = width - filled
-    return "[" + "█" * filled + " " * empty + "]"
 
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -34,12 +27,15 @@ class TrainingTray(rumps.App):
         self._spinner_idx = 0
 
         # --- Static menu skeleton ---
+        self.progress_bar_item = rumps.MenuItem("—")
         self.status_item       = rumps.MenuItem("Status: —")
         self.epoch_item        = rumps.MenuItem("Epoch: —")
         self.batch_item        = rumps.MenuItem("Batch: —")
         self.loss_item         = rumps.MenuItem("Loss: —")
         
         self.menu = [
+            self.progress_bar_item,
+            rumps.separator,
             self.status_item,
             rumps.separator,
             self.epoch_item,
@@ -91,16 +87,23 @@ class TrainingTray(rumps.App):
             self.title = "🗻"
             self.status_item.title = f"Status: {status}"
 
+        # Progress bar (based on batches)
+        batches = state.get("batches_complete", 0)
+        total_batches = state.get("total_batches", 1) # Avoid div zero
+        pct = int(100 * batches / total_batches) if total_batches > 0 else 0
+        
+        bar_len = 20
+        filled_len = int(round(bar_len * pct / 100))
+        bar = "█" * filled_len + "░" * (bar_len - filled_len)
+        self.progress_bar_item.title = f"[{bar}] {pct}%"
+
         # Epochs
         epoch = state.get("epoch", 0)
         total_epochs = state.get("total_epochs", 0)
         self.epoch_item.title = f"Epoch: {epoch}/{total_epochs}"
         
         # Batches
-        batches = state.get("batches_complete", 0)
-        total_batches = state.get("total_batches", 0)
-        bar = generate_progress_bar(batches, total_batches)
-        self.batch_item.title = f"Batch: {bar} {batches}/{total_batches}"
+        self.batch_item.title = f"Batch: {batches}/{total_batches}"
         
         # Loss
         loss = state.get("current_loss", 0.0)

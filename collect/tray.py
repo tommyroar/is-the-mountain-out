@@ -20,15 +20,17 @@ from collect.state import CollectorState, read_state, fetch_remote_state
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 2  # seconds between state file reads
+REFRESH_INTERVAL = 10  # seconds between state file reads
 
 
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 class MountainTray(rumps.App if rumps else object):
-    def __init__(self, data_root: str = "data", worker_url: Optional[str] = None, cloud_enabled: bool = False):
+    def __init__(self, data_root: str = "data", session_id: Optional[str] = None, worker_url: Optional[str] = None, cloud_enabled: bool = False):
+        self.session_id = session_id or "persistent"
         if rumps:
-            super().__init__("Mountain Collector", title="🗻", quit_button=None)
+            name = f"Mountain Collector ({self.session_id})" if self.session_id != "persistent" else "Mountain Collector"
+            super().__init__(name, title="🗻", quit_button=None)
         self.data_root = Path(data_root).absolute()
         self.worker_url = worker_url
         self.cloud_enabled = cloud_enabled
@@ -39,6 +41,7 @@ class MountainTray(rumps.App if rumps else object):
             return
 
         # --- Static menu skeleton ---
+        self.progress_bar_item = rumps.MenuItem("—")
         self.status_item       = rumps.MenuItem("Status: —")
         self.progress_item     = rumps.MenuItem("Progress: —")
         self.last_capture_item = rumps.MenuItem("Last Capture: —")
@@ -46,7 +49,10 @@ class MountainTray(rumps.App if rumps else object):
         self.final_item        = rumps.MenuItem("Final Capture: —")
         self.session_item      = rumps.MenuItem("Session: —")
         self.open_item         = rumps.MenuItem("Open Index File", callback=self._on_open_folder)
+        self.ad_hoc_item       = rumps.MenuItem("Capture additional image", callback=self._on_capture_additional)
         self.menu = [
+            self.progress_bar_item,
+            rumps.separator,
             self.status_item,
             self.progress_item,
             self.last_capture_item,
@@ -56,6 +62,7 @@ class MountainTray(rumps.App if rumps else object):
             self.session_item,
             rumps.separator,
             self.open_item,
+            self.ad_hoc_item,
             rumps.separator,
             rumps.MenuItem("Quit Capture Job", callback=self._on_quit),
         ]
@@ -70,24 +77,39 @@ class MountainTray(rumps.App if rumps else object):
         if self.cloud_enabled and self.worker_url:
             state = fetch_remote_state(f"{self.worker_url}/state")
         else:
-            state = read_state(self.data_root)
+            state = read_state(self.data_root, self.session_id)
 
         if state is None:
             self.status_item.title = "Status: No state found"
             return
-        if state == self._last_state:
-            return
+        
+        # Compare essential fields to decide if we need a rerender
+        if self._last_state:
+            is_same = (
+                state.capture_count == self._last_state.capture_count and
+                state.status == self._last_state.status and
+                state.next_capture_at == self._last_state.next_capture_at
+            )
+            if is_same:
+                return
+
         self._last_state = state
         self._render(state)
 
     def _render(self, state: CollectorState) -> None:
-        # Update menu bar title with a simple Fuji mountain and a spinner if active
+        # Update menu bar title with spinner if actively capturing
         if state.status == "capturing":
             spinner = SPINNER[self._spinner_idx % len(SPINNER)]
             self._spinner_idx += 1
             self.title = f"🗻{spinner}"
         else:
             self.title = "🗻"
+
+        # Progress bar as the first item in the menu
+        bar_len = 20
+        filled_len = int(round(bar_len * state.pct_complete / 100))
+        bar = "█" * filled_len + "░" * (bar_len - filled_len)
+        self.progress_bar_item.title = f"[{bar}] {state.pct_complete}%"
 
         self.status_item.title   = f"Status: {state.status}"
         total_str = str(state.plan_total) if state.plan_total > 0 else "?"
@@ -119,6 +141,15 @@ class MountainTray(rumps.App if rumps else object):
                 subprocess.Popen(["open", str(self.data_root)])
         else:
             subprocess.Popen(["xdg-open", str(self.data_root)])
+
+    def _on_capture_additional(self, _):
+        logger.info(f"Triggering ad-hoc capture for session {self.session_id}...")
+        try:
+            trigger_file = self.data_root / f"trigger_{self.session_id}"
+            trigger_file.touch()
+            logger.info(f"Created trigger file: {trigger_file}")
+        except Exception as e:
+            logger.error(f"Failed to trigger ad-hoc capture: {e}")
 
     def _on_quit(self, _):
         logger.info("Quitting tray...")

@@ -58,3 +58,7 @@ class ConfigLoader:
     @property
     def mountain_data(self) -> Dict[str, Any]:
         return self.data.get('mountain', {})
+
+    @property
+    def cloud(self) -> Dict[str, Any]:
+        return self.data.get('cloud', {})

@@ -28,9 +28,11 @@ uv run collect live         # continuous collection loop
 uv run classify start [data_folder]
 uv run classify stop
 
-# macOS scheduling (launchctl)
-uv run training schedule / unschedule
-uv run collect schedule / unschedule
+# Nomad job management
+nomad job run nomad/collect.hcl          # start collector tray
+nomad job status mountain-collector      # check status
+nomad alloc logs <alloc-id>              # view logs
+nomad alloc logs -stderr <alloc-id>      # view error logs
 ```
 
 ### Frontend (ui/)

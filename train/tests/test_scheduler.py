@@ -16,7 +16,7 @@ def test_trainer_initialization(mock_weather, mock_model_cls, mock_config):
     mock_config.return_value.checkpoint_dir = 'checkpoints'
     
     mock_model = MagicMock()
-    mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
+    mock_model.model_dict.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
     mock_model_cls.return_value = mock_model
     
     trainer = Trainer('mountain.toml')
@@ -38,10 +38,9 @@ def test_run_single_cycle_execution(mock_weather_cls, mock_webcam):
         
         with patch('train.scheduler.ConvNextLoRAModel') as mock_model_cls:
             mock_model = MagicMock()
-            mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
+            mock_model.model_dict.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
             mock_model.train_step.return_value = 0.5
-            mock_model_cls.return_value = mock_model
-            
+            mock_model_cls.return_value = mock_model            
             mock_weather = MagicMock()
             mock_weather_vector = torch.tensor([0.8, 0.9])
             mock_weather.get_weather_vector.return_value = mock_weather_vector
@@ -81,10 +80,9 @@ def test_live_training_loop_cycle(mock_sleep, mock_weather_cls, mock_webcam):
         
         with patch('train.scheduler.ConvNextLoRAModel') as mock_model_cls:
             mock_model = MagicMock()
-            mock_model.model.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
+            mock_model.model_dict.parameters.return_value = [torch.nn.Parameter(torch.randn(1))]
             mock_model.train_step.return_value = 0.5
-            mock_model_cls.return_value = mock_model
-            
+            mock_model_cls.return_value = mock_model            
             mock_weather = MagicMock()
             mock_weather_vector = torch.tensor([0.8, 0.9])
             mock_weather.get_weather_vector.return_value = mock_weather_vector

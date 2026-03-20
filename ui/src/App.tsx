@@ -21,9 +21,28 @@ interface SelectionBox {
   currentY: number;
 }
 
+interface NomadJob {
+  ID: string;
+  Name: string;
+  Status: string;
+  Type: string;
+  SubmitTime: number;
+  JobSummary?: {
+    Summary: Record<string, {
+      Running: number;
+      Starting: number;
+      Queued: number;
+      Complete: number;
+      Failed: number;
+    }>;
+  };
+}
+
 function App() {
+  const [activeTab, setActiveTab] = useState<'labeling' | 'jobs'>('labeling')
   const [images, setImages] = useState<string[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
+  const [jobs, setJobs] = useState<NomadJob[]>([])
   const [selections, setSelections] = useState<Record<string, number>>({})
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -99,15 +118,18 @@ function App() {
   const fetchData = useCallback(async (base = apiBase) => {
     setLoading(true)
     try {
-      const [imgRes, statsRes] = await Promise.all([
+      const [imgRes, statsRes, jobsRes] = await Promise.all([
         fetch(`${base}/api/images?batch_size=60`),
-        fetch(`${base}/api/stats`)
+        fetch(`${base}/api/stats`),
+        fetch(`${base}/api/jobs`)
       ])
       const imgData: ImageBatch = await imgRes.json()
       const statsData: Stats = await statsRes.json()
+      const jobsData: NomadJob[] = await jobsRes.json()
       
       setImages(imgData.images)
       setStats({ ...statsData, total_images: imgData.total_images })
+      setJobs(jobsData)
       setSelections({})
       setSelectedPaths(new Set())
     } catch (err) {
@@ -273,7 +295,22 @@ function App() {
                 </span>
               </div>
 
-              {stats && (
+              <div className="flex bg-black/40 rounded-xl p-1 border border-zinc-800/50">
+                <button 
+                  onClick={() => setActiveTab('labeling')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'labeling' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  Labels
+                </button>
+                <button 
+                  onClick={() => setActiveTab('jobs')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'jobs' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  Jobs
+                </button>
+              </div>
+
+              {stats && activeTab === 'labeling' && (
                 <div className="flex gap-4 items-center bg-black/40 px-4 py-2 rounded-xl border border-zinc-800/50">
                   <div className="flex flex-col items-center px-3 border-r border-zinc-800">
                     <span className="text-[9px] text-zinc-500 uppercase font-black">Progress</span>
@@ -312,7 +349,7 @@ function App() {
     />
   </div>
 
-  <div className={`flex gap-2 transition-all duration-300 ${selectedPaths.size > 0 ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+  <div className={`flex gap-2 transition-all duration-300 ${activeTab === 'labeling' && selectedPaths.size > 0 ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
 
                 <button onClick={() => applyBulkLabel(1)} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 transition-colors">
                   <Mountain size={14} /> FULL <kbd className="opacity-50 bg-black/20 px-1 rounded text-[10px]">1</kbd>
@@ -327,14 +364,16 @@ function App() {
               
               <div className="w-px h-8 bg-zinc-800 mx-2" />
 
-              <button
-                onClick={handleSubmit}
-                disabled={submitting || images.length === 0}
-                className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 text-white px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg transition-all active:scale-95"
-              >
-                {submitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 size={18} />}
-                SUBMIT BATCH <kbd className="opacity-50 bg-black/20 px-1 rounded text-[10px]">SPACE</kbd>
-              </button>
+              {activeTab === 'labeling' && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting || images.length === 0}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 text-white px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                >
+                  {submitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 size={18} />}
+                  SUBMIT BATCH <kbd className="opacity-50 bg-black/20 px-1 rounded text-[10px]">SPACE</kbd>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -354,7 +393,56 @@ function App() {
 
 
       <main className="p-4 pt-8 max-w-[1900px] mx-auto min-h-screen">
-        {images.length === 0 ? (
+        {activeTab === 'jobs' ? (
+          <div className="flex flex-col gap-6">
+            <h2 className="text-3xl font-black italic tracking-tighter uppercase flex items-center gap-3">
+              <HardDrive className="text-blue-500" size={32} />
+              Nomad Jobs
+            </h2>
+            <div className="grid gap-4">
+              {jobs.map(job => (
+                <div key={job.ID} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-zinc-700 transition-colors">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-3 h-3 rounded-full ${job.Status === 'running' ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
+                      <h3 className="text-xl font-bold tracking-tight">{job.ID}</h3>
+                      <span className="text-[10px] bg-zinc-800 px-2 py-1 rounded-md font-black uppercase text-zinc-400 tracking-widest">{job.Type}</span>
+                    </div>
+                    <span className="text-xs font-mono text-zinc-500">{new Date(job.SubmitTime / 1000000).toLocaleString()}</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-4 gap-4">
+                    {job.JobSummary && Object.entries(job.JobSummary.Summary).map(([task, counts]) => (
+                      <div key={task} className="bg-black/40 rounded-xl p-4 border border-zinc-800/50">
+                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block mb-2">{task}</span>
+                        <div className="flex gap-4">
+                          <div className="flex flex-col">
+                            <span className="text-green-500 font-bold text-lg leading-none">{counts.Running}</span>
+                            <span className="text-[8px] text-zinc-500 uppercase font-bold mt-1">Run</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-blue-500 font-bold text-lg leading-none">{counts.Queued + counts.Starting}</span>
+                            <span className="text-[8px] text-zinc-500 uppercase font-bold mt-1">Wait</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-zinc-400 font-bold text-lg leading-none">{counts.Complete}</span>
+                            <span className="text-[8px] text-zinc-500 uppercase font-bold mt-1">Done</span>
+                          </div>
+                          {counts.Failed > 0 && (
+                            <div className="flex flex-col">
+                              <span className="text-red-500 font-bold text-lg leading-none">{counts.Failed}</span>
+                              <span className="text-[8px] text-zinc-500 uppercase font-bold mt-1">Fail</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : images.length === 0 ? (
           <div className="flex flex-col items-center justify-center min-h-[80vh] text-center">
             <CheckCircle2 className="text-green-500 mb-6 animate-bounce" size={120} />
             <h2 className="text-5xl font-black text-zinc-100 uppercase tracking-tighter italic">Dataset Complete</h2>

@@ -14,6 +14,8 @@ from typing import Dict, Optional
 STATE_FILENAME = "collector_state.json"
 PLAN_FILENAME  = "capture_plan.json"
 
+def _get_state_path(data_root: str | Path, session_id: str) -> Path:
+    return Path(data_root) / f"collector_state_{session_id}.json"
 
 @dataclass
 class CollectorState:
@@ -41,18 +43,31 @@ def _now_iso() -> str:
 
 
 def write_state(data_root: str | Path, state: CollectorState) -> None:
-    path = Path(data_root) / STATE_FILENAME
+    path = _get_state_path(data_root, state.session_id)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(asdict(state), indent=2))
     tmp.replace(path)  # atomic on POSIX
 
 
-def read_state(data_root: str | Path) -> Optional[CollectorState]:
-    path = Path(data_root) / STATE_FILENAME
+def read_state(data_root: str | Path, session_id: str) -> Optional[CollectorState]:
+    path = _get_state_path(data_root, session_id)
     try:
         data = json.loads(path.read_text())
         return CollectorState(**data)
     except Exception:
+        return None
+
+
+def fetch_remote_state(url: str) -> Optional[CollectorState]:
+    """Fetch collector state from a remote Cloudflare Worker endpoint."""
+    import requests
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        return CollectorState(**data)
+    except Exception as e:
+        print(f"Error fetching remote state: {e}")
         return None
 
 
