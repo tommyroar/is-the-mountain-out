@@ -205,7 +205,28 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-\n# Build artifacts\n*.egg-info/\nbuild/\ndist/\n__pycache__/\n*.pyc
+
+# macOS
+.DS_Store
+
+# Editor / AI agent configs
+.claude/
+.gemini/
+.kiro/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+__pycache__/
+*.pyc
+
+# Project secrets
 mapbox.key
 ntfy.key
 openjd_rfcs.md
+
+# Terraform state (contains sensitive data)
+*.tfstate
+*.tfstate.backup
+*.tfvars
