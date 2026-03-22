@@ -1,4 +1,5 @@
 import os
+import logging
 import yaml
 import json
 from pathlib import Path
@@ -8,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime, UTC
+
+from train.config_loader import ConfigLoader
 
 app = FastAPI(title="Mountain Classifier API")
 
@@ -22,10 +25,34 @@ app.add_middleware(
 DATA_ROOT = Path(os.environ.get("MOUNTAIN_DATA_ROOT", "data"))
 LABELS_PATH = Path(os.environ.get("MOUNTAIN_LABELS_FILE", DATA_ROOT / "labels.yaml"))
 
+# Optional R2 storage — initialized at module level for use by endpoints
+_r2_storage = None
+try:
+    _config = ConfigLoader(os.environ.get("MOUNTAIN_CONFIG", "mountain.toml"))
+    if _config.storage_backend == "r2":
+        from collect.storage import R2Storage
+        _cfg = _config.storage_config
+        _r2_storage = R2Storage(account_id=_cfg["r2_account_id"], bucket=_cfg["r2_bucket"])
+        logging.info(f"Classifier server: R2 storage enabled ({_cfg['r2_bucket']})")
+except Exception as e:
+    logging.info(f"Classifier server: R2 not configured, using local only ({e})")
+
+
 class LabelBatch(BaseModel):
     labels: Dict[str, int] # path -> label
 
 def load_labels():
+    # Pull from R2 if available (R2 is source of truth)
+    if _r2_storage is not None:
+        try:
+            remote_text = _r2_storage.get_text("labels.yaml")
+            remote_labels = yaml.safe_load(remote_text) or {}
+            # Also write to local as cache
+            with open(LABELS_PATH, "w") as f:
+                yaml.safe_dump(remote_labels, f)
+            return remote_labels
+        except Exception:
+            pass  # Fall through to local
     if LABELS_PATH.exists():
         with open(LABELS_PATH, "r") as f:
             return yaml.safe_load(f) or {}
@@ -34,6 +61,19 @@ def load_labels():
 def save_labels(labels):
     with open(LABELS_PATH, "w") as f:
         yaml.safe_dump(labels, f)
+    # Push to R2 (union merge: never delete keys)
+    if _r2_storage is not None:
+        try:
+            # Merge with remote to avoid overwriting labels added elsewhere
+            try:
+                remote_text = _r2_storage.get_text("labels.yaml")
+                remote_labels = yaml.safe_load(remote_text) or {}
+            except Exception:
+                remote_labels = {}
+            remote_labels.update(labels)
+            _r2_storage.put_text("labels.yaml", yaml.safe_dump(remote_labels))
+        except Exception as e:
+            logging.warning(f"Failed to push labels to R2: {e}")
 
 @app.get("/api/jobs")
 def get_jobs():
@@ -79,6 +119,25 @@ def post_labels(batch: LabelBatch):
     labels.update(batch.labels)
     save_labels(labels)
     return {"status": "success", "new_count": len(labels)}
+
+@app.get("/api/image-url/{path:path}")
+def get_image_url(path: str):
+    """Return a pre-signed R2 URL for direct browser access.
+
+    Falls back to the local /data/ static path when R2 is not configured.
+    """
+    if _r2_storage is not None:
+        try:
+            url = _r2_storage.presign(path, expires=3600)
+            return {"url": url, "source": "r2"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to generate pre-signed URL: {e}")
+    return {"url": f"/data/{path}", "source": "local"}
+
+@app.get("/api/storage-mode")
+def get_storage_mode():
+    """Report whether the server is using R2 or local storage."""
+    return {"backend": "r2" if _r2_storage is not None else "local"}
 
 # Serve the actual data directory for image access
 # Access via /data/YYYYMMDD/...

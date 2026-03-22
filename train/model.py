@@ -82,19 +82,56 @@ class ConvNextLoRAModel(nn.Module):
             _, predicted = torch.max(outputs, 1)
             return predicted
 
-    def save_checkpoint(self, checkpoint_dir: str):
-        """Saves LoRA adapters and classifier head."""
+    def save_checkpoint(self, checkpoint_dir: str, storage=None):
+        """Saves LoRA adapters and classifier head locally, then uploads to R2 if storage is provided."""
         os.makedirs(checkpoint_dir, exist_ok=True)
         self.model_dict['backbone'].save_pretrained(checkpoint_dir)
         torch.save(self.model_dict['classifier'].state_dict(), os.path.join(checkpoint_dir, "classifier.pt"))
         print(f"Checkpoint saved to {checkpoint_dir}")
 
-    def load_checkpoint(self, checkpoint_dir: str):
-        """Loads LoRA adapters and classifier head."""
+        if storage is not None:
+            self._upload_checkpoint(checkpoint_dir, storage)
+
+    def _upload_checkpoint(self, checkpoint_dir: str, storage):
+        """Upload checkpoint files to remote storage under checkpoints/ prefix."""
+        import logging
+        checkpoint_files = ["adapter_config.json", "adapter_model.safetensors", "classifier.pt"]
+        for fname in checkpoint_files:
+            local_path = os.path.join(checkpoint_dir, fname)
+            if os.path.exists(local_path):
+                try:
+                    with open(local_path, "rb") as f:
+                        storage.put(f"checkpoints/{fname}", f.read())
+                except Exception as e:
+                    logging.warning(f"Failed to upload {fname} to R2: {e}")
+        print("Checkpoints uploaded to R2.")
+
+    def load_checkpoint(self, checkpoint_dir: str, storage=None):
+        """Loads LoRA adapters and classifier head. Falls back to R2 if local is missing."""
         classifier_path = os.path.join(checkpoint_dir, "classifier.pt")
+
+        # Try downloading from R2 if local checkpoint doesn't exist
+        if storage is not None and not os.path.exists(classifier_path):
+            self._download_checkpoint(checkpoint_dir, storage)
+
         if os.path.exists(checkpoint_dir) and os.path.exists(classifier_path):
             self.model_dict['backbone'].load_adapter(checkpoint_dir, "default")
             self.model_dict['classifier'].load_state_dict(torch.load(classifier_path, map_location=self.device))
             print(f"Checkpoint loaded from {checkpoint_dir}")
             return True
         return False
+
+    def _download_checkpoint(self, checkpoint_dir: str, storage):
+        """Download checkpoint files from remote storage if available."""
+        import logging
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_files = ["adapter_config.json", "adapter_model.safetensors", "classifier.pt"]
+        for fname in checkpoint_files:
+            try:
+                data = storage.get(f"checkpoints/{fname}")
+                with open(os.path.join(checkpoint_dir, fname), "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                logging.info(f"Could not download {fname} from R2: {e}")
+                return  # If any file is missing, don't partially load
+        print(f"Checkpoints downloaded from R2 to {checkpoint_dir}")

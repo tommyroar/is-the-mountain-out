@@ -92,32 +92,34 @@ def log_event(event: str, status: str, metadata: Optional[Dict] = None):
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str, session_uuid: Optional[str] = None, step_info: Optional[Dict] = None) -> Optional[Path]:
+def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher, data_root: str, session_uuid: Optional[str] = None, step_info: Optional[Dict] = None, remote_storage=None) -> Optional[Path]:
     now_utc = datetime.now(UTC)
     date_str = now_utc.strftime("%Y%m%d")
     time_str = now_utc.strftime("%H%M%S_%f_UTC")
-    
+
     capture_dir = Path(data_root) / date_str / time_str
     image_dir = capture_dir / "images"
     metar_dir = capture_dir / "metar"
-    
+
     image_dir.mkdir(parents=True, exist_ok=True)
     metar_dir.mkdir(parents=True, exist_ok=True)
-    
+
     logging.info(f"Starting collection into {capture_dir}...")
-    
+
     metar_text = weather_fetcher.fetch_latest_metar()
     if metar_text:
-        (metar_dir / "metar.txt").write_text(metar_text)
+        metar_path = metar_dir / "metar.txt"
+        metar_path.write_text(metar_text)
         logging.info("METAR data saved.")
     else:
+        metar_path = None
         logging.warning("METAR capture failed.")
 
     source = config_loader.webcam_url
     if not source:
         logging.error("No webcam source configured.")
         return False
-        
+
     stream = WebcamStream(source)
     try:
         frame = stream.capture_raw()
@@ -127,12 +129,31 @@ def perform_capture(config_loader: ConfigLoader, weather_fetcher: WeatherFetcher
             image_path = image_dir / filename
             cv2.imwrite(str(image_path), frame)
             logging.info(f"Source {source}: Saved as {filename}")
+
+            # Upload to R2 if a remote storage backend is provided
+            if remote_storage is not None:
+                _upload_to_remote(remote_storage, data_root, image_path, frame, metar_path, metar_text)
+
             return image_path
         else:
             logging.warning(f"Source {source}: Capture failed.")
             return None
     finally:
         stream.release()
+
+
+def _upload_to_remote(storage, data_root: str, image_path: Path, frame, metar_path: Optional[Path], metar_text: Optional[str]) -> None:
+    """Best-effort upload of a capture to the remote storage backend."""
+    try:
+        root = Path(data_root)
+        # Encode the frame as JPEG bytes
+        _, buf = cv2.imencode(".jpg", frame)
+        storage.put(str(image_path.relative_to(root)), buf.tobytes())
+        if metar_text and metar_path:
+            storage.put_text(str(metar_path.relative_to(root)), metar_text)
+        logging.info("R2 upload complete.")
+    except Exception as e:
+        logging.warning(f"R2 upload failed (non-fatal): {e}")
 
 # --- CLI using Click ---
 
@@ -154,6 +175,17 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
     config_loader = ConfigLoader(config_path)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     fallback_interval = config_loader.collection_seconds
+
+    # Optional remote storage for R2 uploads
+    remote_storage = None
+    if config_loader.storage_backend == "r2":
+        try:
+            from collect.storage import R2Storage
+            cfg = config_loader.storage_config
+            remote_storage = R2Storage(account_id=cfg["r2_account_id"], bucket=cfg["r2_bucket"])
+            logging.info(f"R2 upload enabled: {cfg['r2_bucket']}")
+        except Exception as e:
+            logging.warning(f"R2 storage init failed, continuing local-only: {e}")
 
     # Load plan if one exists
     all_plan_timestamps = read_plan(data_root) or []
@@ -236,7 +268,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                 final_capture_at=plan_final_capture_at,
             ))
 
-            image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+            image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id, remote_storage=remote_storage)
 
             if image_path:
                 capture_count += 1
@@ -289,7 +321,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                     final_capture_at=plan_final_capture_at,
                 ))
                 
-                image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+                image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id, remote_storage=remote_storage)
                 if image_path:
                     capture_count += 1
                     last_capture_at = datetime.now(timezone.utc).isoformat()
@@ -389,14 +421,27 @@ def live(config: str, data_root: str):
     config_loader = ConfigLoader(config)
     weather_fetcher = WeatherFetcher(config_loader.metar_station)
     interval = config_loader.collection_seconds
-    
+
+    remote_storage = None
+    if config_loader.storage_backend == "r2":
+        try:
+            from collect.storage import R2Storage
+            cfg = config_loader.storage_config
+            remote_storage = R2Storage(account_id=cfg["r2_account_id"], bucket=cfg["r2_bucket"])
+            logging.info(f"R2 upload enabled: {cfg['r2_bucket']}")
+        except Exception as e:
+            logging.warning(f"R2 storage init failed, continuing local-only: {e}")
+
     logging.info(f"Starting live collection loop (interval: {interval}s). Press Ctrl+C to stop.")
     try:
         while True:
-            perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
+            perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id, remote_storage=remote_storage)
             time.sleep(interval)
     except KeyboardInterrupt:
         logging.info("Stopping live collection.")
+
+from collect.sync import sync
+cli.add_command(sync)
 
 if __name__ == "__main__":
     cli()
