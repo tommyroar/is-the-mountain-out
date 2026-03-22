@@ -230,6 +230,10 @@ openjd_rfcs.md
 *.tfstate
 *.tfstate.backup
 *.tfvars
+terraform/r2_credentials.env
+
+# R2 local cache
+.r2cache/
 
 # Node / web SPA
 node_modules/
