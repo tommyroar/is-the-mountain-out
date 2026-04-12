@@ -30,12 +30,16 @@ class CollectorState:
     updated_at: str                      # ISO-8601 UTC
     session_labels_file: Optional[str] = None  # path to labels.{uuid}.yaml
     final_capture_at: Optional[str] = None      # ISO-8601 UTC of last planned capture
+    prior_capture_count: int = 0                 # captures from previous sessions toward same goal
+    prior_plan_total: int = 0                    # plan_total from previous sessions toward same goal
 
     @property
     def pct_complete(self) -> int:
-        if self.plan_total <= 0:
+        total = self.plan_total + self.prior_plan_total
+        done = self.capture_count + self.prior_capture_count
+        if total <= 0:
             return 0
-        return min(100, int(self.capture_count / self.plan_total * 100))
+        return min(100, int(done / total * 100))
 
 
 def _now_iso() -> str:
@@ -112,6 +116,8 @@ def make_state(
     label_counts: Optional[Dict[str, int]] = None,
     session_labels_file: Optional[str] = None,
     final_capture_at: Optional[str] = None,
+    prior_capture_count: int = 0,
+    prior_plan_total: int = 0,
 ) -> CollectorState:
     return CollectorState(
         session_id=session_id,
@@ -125,4 +131,6 @@ def make_state(
         updated_at=_now_iso(),
         session_labels_file=session_labels_file,
         final_capture_at=final_capture_at,
+        prior_capture_count=prior_capture_count,
+        prior_plan_total=prior_plan_total,
     )

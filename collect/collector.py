@@ -169,10 +169,24 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
 
     plan_total = len(plan_timestamps) if plan_timestamps else 0
 
-    # Seed count and index from previous state so restarts don't reset to zero.
+    # Seed capture count from previous state so restarts don't reset to zero.
     _prev = read_state(data_root, session_id)
     capture_count = _prev.capture_count if _prev else 0
-    plan_index = min(capture_count, plan_total)  # best-effort resume position
+    # plan_index tracks position within plan_timestamps (future-only list).
+    # Always start at 0 since plan_timestamps is already filtered to future.
+    plan_index = 0
+
+    # Load carry-over counts from prior sessions toward the same goal.
+    prior_capture_count = 0
+    prior_plan_total = 0
+    _prior_path = Path(data_root) / "prior_sessions.json"
+    try:
+        _prior = json.loads(_prior_path.read_text())
+        prior_capture_count = _prior.get("capture_count", 0)
+        prior_plan_total = _prior.get("plan_total", 0)
+        logging.info(f"Prior sessions: {prior_capture_count}/{prior_plan_total} captures carried over.")
+    except Exception:
+        pass
 
     stop_event = threading.Event()
     last_capture_at = plan_last_capture_at  # tracked across all loop iterations
@@ -221,7 +235,7 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
         return False
 
     def capture_loop():
-        nonlocal capture_count, plan_index, last_capture_at
+        nonlocal capture_count, plan_index, last_capture_at, plan_total, plan_final_capture_at
 
         while not stop_event.is_set():
             # Scheduled capture start
@@ -234,6 +248,8 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                 next_capture_at=_next_capture_at(),
                 session_labels_file=str(session_labels_file),
                 final_capture_at=plan_final_capture_at,
+                prior_capture_count=prior_capture_count,
+                prior_plan_total=prior_plan_total,
             ))
 
             image_path = perform_capture(config_loader, weather_fetcher, data_root, session_uuid=session_id)
@@ -256,6 +272,8 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                 next_capture_at=_next_capture_at(),
                 session_labels_file=str(session_labels_file),
                 final_capture_at=plan_final_capture_at,
+                prior_capture_count=prior_capture_count,
+                prior_plan_total=prior_plan_total,
             ))
 
             if is_once:
@@ -265,10 +283,33 @@ def run_tray_loop(config_path: str, data_root: str, is_once: bool = False, sessi
                 return
 
             if plan_timestamps and plan_index >= len(plan_timestamps):
-                logging.info("Plan complete.")
-                stop_event.set()
-                rumps.quit_application()
-                return
+                logging.info("Plan complete. Regenerating for next 30 days...")
+                try:
+                    import sys as _sys
+                    from datetime import timedelta as _td
+                    _sys.path.insert(0, str(Path(config_path).resolve().parent))
+                    from tools.plan import CapturePlan
+                    planner = CapturePlan(47.6533, -122.3091)
+                    _now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+                    intervals = planner.generate(_now, days=30)
+                    new_ts = []
+                    current = _now
+                    for step in intervals:
+                        if step == "stop":
+                            break
+                        current = current + _td(seconds=int(step[:-1]))
+                        new_ts.append(current.isoformat())
+                    write_plan(data_root, new_ts)
+                    plan_timestamps[:] = [t for t in new_ts if datetime.fromisoformat(t) > datetime.now(timezone.utc)]
+                    plan_index = 0
+                    plan_total = len(plan_timestamps)
+                    plan_final_capture_at = new_ts[-1] if new_ts else None
+                    logging.info(f"New plan: {len(plan_timestamps)} captures over 30 days.")
+                except Exception:
+                    logging.exception("Failed to regenerate plan. Falling back to fixed interval.")
+                    plan_timestamps.clear()
+                    plan_index = 0
+                    plan_total = 0
 
             # Wait for next or trigger
             while not stop_event.is_set():
