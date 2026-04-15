@@ -32,8 +32,8 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "fc2",
-    "fc1"
+    "fc1",
+    "fc2"
   ],
   "target_parameters": null,
   "task_type": null,
