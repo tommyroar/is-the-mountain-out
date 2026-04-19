@@ -230,3 +230,7 @@ openjd_rfcs.md
 *.tfstate
 *.tfstate.backup
 *.tfvars
+
+# Node / web SPA
+node_modules/
+web/dist/

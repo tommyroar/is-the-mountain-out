@@ -1,6 +1,8 @@
 # is-the-mountain-out
 Determine if Mount Rainier is "out" (visible) using real-time image classification with iterative LoRA training on live webcam streams, optimized for Apple Silicon (MPS).
 
+**Live site:** https://tommyroar.github.io/is-the-mountain-out/ — updated every 15 minutes by a scheduled GitHub Action that runs inference against the UW ATG webcam and KSEA METAR, commits `web/public/state.json`, and redeploys the Pages bundle. Append `?debug` to see confidence bars and the raw METAR readout.
+
 ## Overview
 This system performs online learning using Parameter-Efficient Fine-Tuning (PEFT) with LoRA on a `convnext_tiny` vision backbone. It integrates METAR weather data as a secondary input to the classification head, improving the model's accuracy by incorporating real-world visibility and ceiling data.
 
