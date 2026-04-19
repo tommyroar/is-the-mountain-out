@@ -68,7 +68,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install web dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
         working-directory: web
 
       - name: Build SPA
