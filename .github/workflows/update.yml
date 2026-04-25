@@ -47,19 +47,28 @@ jobs:
         run: uv sync --frozen --no-dev
 
       - name: Run inference
-        run: uv run python tools/predict_state.py --out web/public/state.json
+        id: inference
+        continue-on-error: true
+        run: uv run python tools/predict_state.py --out web/public/state.json --log web/public/history.jsonl
 
-      - name: Commit updated state.json
+      - name: Commit updated state and history
+        if: always()
         run: |
-          if git diff --quiet web/public/state.json; then
-            echo "state.json unchanged"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/public/state.json web/public/history.jsonl
+          if git diff --staged --quiet; then
+            echo "no changes to commit"
           else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add web/public/state.json
             git commit -m "chore: update mountain state $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
+
+      - name: Fail job if inference errored
+        if: steps.inference.outcome == 'failure'
+        run: |
+          echo "inference step failed; see web/public/history.jsonl for the structured error record"
+          exit 1
 
       - uses: actions/setup-node@v4
         with:
