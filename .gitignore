@@ -238,3 +238,8 @@ terraform/r2_credentials.env
 # Node / web SPA
 node_modules/
 web/dist/
+
+# Cloudflare Worker build artifacts
+worker/node_modules/
+worker/dist/
+worker/.wrangler/

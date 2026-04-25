@@ -1,0 +1,31 @@
+name = "mountain-inference"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+GITHUB_OWNER = "tommyroar"
+GITHUB_REPO = "is-the-mountain-out"
+GITHUB_BRANCH = "main"
+STATE_PATH = "web/public/state.json"
+HISTORY_PATH = "web/public/history.jsonl"
+
+# Container binding — image tag is set by Terraform / wrangler deploy.
+# The image is pulled from GHCR; see .github/workflows/build-inference-image.yml.
+[[containers]]
+class_name = "InferenceContainer"
+image = "ghcr.io/tommyroar/is-the-mountain-out/inference:latest"
+max_instances = 1
+instance_type = "standard"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["InferenceContainer"]
+
+[durable_objects]
+bindings = [
+  { class_name = "InferenceContainer", name = "INFERENCE_CONTAINER" }
+]
