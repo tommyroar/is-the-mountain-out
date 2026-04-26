@@ -7,6 +7,7 @@ import io
 import json
 import subprocess
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -111,24 +112,70 @@ def predict(checkpoint_dir: str, webcam_url: str, station: str) -> dict:
     }
 
 
+def _iso_utc(dt: datetime) -> str:
+    return dt.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _append_log(log_path: Path, record: dict) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a single visibility prediction and write state.json.")
     parser.add_argument("--config", default="mountain.toml")
     parser.add_argument("--out", default="web/public/state.json")
+    parser.add_argument(
+        "--log",
+        default="web/public/history.jsonl",
+        help="Append a structured JSONL record (success or error) for each invocation.",
+    )
     args = parser.parse_args()
 
     config = ConfigLoader(args.config)
-    state = predict(
-        checkpoint_dir=config.checkpoint_dir,
-        webcam_url=config.webcam_url,
-        station=config.metar_station,
-    )
 
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(state, indent=2) + "\n")
-    print(json.dumps(state, indent=2))
-    return 0
+    started_at = datetime.now(timezone.utc)
+    record: dict = {
+        "started_at": _iso_utc(started_at),
+        "config": {
+            "checkpoint_dir": config.checkpoint_dir,
+            "webcam_url": config.webcam_url,
+            "station": config.metar_station,
+        },
+        "model_version": git_short_sha(),
+    }
+
+    exit_code = 0
+    try:
+        state = predict(
+            checkpoint_dir=config.checkpoint_dir,
+            webcam_url=config.webcam_url,
+            station=config.metar_station,
+        )
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(state, indent=2) + "\n")
+        print(json.dumps(state, indent=2))
+        record["status"] = "ok"
+        record["state"] = state
+    except Exception as exc:
+        record["status"] = "error"
+        record["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        print(f"Inference failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        exit_code = 1
+    finally:
+        finished_at = datetime.now(timezone.utc)
+        record["finished_at"] = _iso_utc(finished_at)
+        record["duration_seconds"] = round((finished_at - started_at).total_seconds(), 3)
+        _append_log(Path(args.log), record)
+
+    return exit_code
 
 
 if __name__ == "__main__":

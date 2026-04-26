@@ -5,7 +5,7 @@ class ConfigLoader:
     def __init__(self, config_path: str = "mountain.toml"):
         self.config_path = config_path
         self.data = self._load_toml_config(self.config_path)
-        
+
         self._validate_config()
 
     def _load_toml_config(self, path: str) -> Dict[str, Any]:
@@ -58,4 +58,35 @@ class ConfigLoader:
     @property
     def mountain_data(self) -> Dict[str, Any]:
         return self.data.get('mountain', {})
+
+    # -- Optional storage backend (R2) --
+
+    @property
+    def storage_backend(self) -> str:
+        """Return 'local' or 'r2'. Defaults to 'local' when [storage] is absent."""
+        return self.data.get('storage', {}).get('backend', 'local')
+
+    @property
+    def storage_config(self) -> Dict[str, Any]:
+        """Return the raw [storage] section, or empty dict."""
+        return self.data.get('storage', {})
+
+    def get_storage(self, data_root: str = "data"):
+        """Factory: return the appropriate StorageBackend based on config.
+
+        Returns LocalStorage when backend='local' or [storage] is absent.
+        Returns R2Storage (or CachedR2Storage) when backend='r2'.
+        """
+        from collect.storage import LocalStorage, R2Storage, CachedR2Storage
+
+        if self.storage_backend != "r2":
+            return LocalStorage(data_root)
+
+        cfg = self.storage_config
+        r2 = R2Storage(
+            account_id=cfg["r2_account_id"],
+            bucket=cfg["r2_bucket"],
+        )
+        cache_dir = cfg.get("cache_dir", ".r2cache")
+        return CachedR2Storage(r2, cache_dir=cache_dir)
 

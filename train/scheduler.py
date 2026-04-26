@@ -134,8 +134,12 @@ def batch(
     
     import yaml
     import cv2
+    import numpy as np
     from torchvision import transforms
     from metar import Metar
+
+    # Resolve storage backend (local or R2 with cache)
+    storage = trainer.config_loader.get_storage(str(data_root))
 
     # Strategy: Use labels.yaml if exists, otherwise fallback to folder-wide label
     labels_map = {}
@@ -180,6 +184,19 @@ def batch(
     random.shuffle(final_training_list)
 
     print(f"Final training set size: {len(final_training_list)} samples.")
+
+    # Prefetch all needed files from R2 into local cache (no-op for LocalStorage)
+    from collect.storage import CachedR2Storage
+    if isinstance(storage, CachedR2Storage):
+        prefetch_keys = []
+        for rel_path, _ in final_training_list:
+            prefetch_keys.append(rel_path)
+            # Also add METAR file keys (try all fallback patterns)
+            img_p = Path(rel_path)
+            prefetch_keys.append(str(img_p.parent.parent / "metar" / f"{img_p.stem}.txt"))
+            prefetch_keys.append(str(img_p.parent.parent / "metar" / "metar.txt"))
+            prefetch_keys.append(str(img_p.parent / f"{img_p.stem}.txt"))
+        storage.prefetch(prefetch_keys)
 
     batch_size = 16
 
@@ -238,18 +255,25 @@ def batch(
 
     def _load_one(rel_path, img_label, transform_fn):
         """Load a single (image_tensor, weather_tensor, label_tensor) on CPU, or None."""
-        img_p = data_root / rel_path
-        metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
-        if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
-        if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
-        if not metar_p.exists(): return None
+        img_rel = Path(rel_path)
+        metar_candidates = [
+            str(img_rel.parent.parent / "metar" / f"{img_rel.stem}.txt"),
+            str(img_rel.parent.parent / "metar" / "metar.txt"),
+            str(img_rel.parent / f"{img_rel.stem}.txt"),
+        ]
+        metar_key = next((c for c in metar_candidates if storage.exists(c)), None)
+        if metar_key is None: return None
 
-        frame = cv2.imread(str(img_p))
+        try:
+            img_bytes = storage.get(rel_path)
+        except Exception:
+            return None
+        frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         if frame is None: return None
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         tensor = transform_fn(frame_rgb)  # CPU
 
-        with open(metar_p, 'r') as f: metar_text = f.read().strip()
+        metar_text = storage.get_text(metar_key).strip()
         vis, ceil = 0.0, 1.0
         try:
             obs = Metar.Metar(metar_text)
@@ -313,18 +337,27 @@ def batch(
             batches_complete = 0
 
             for rel_path, img_label in train_list:
-                img_p = data_root / rel_path
-                metar_p = img_p.parent.parent / "metar" / f"{img_p.stem}.txt"
-                if not metar_p.exists(): metar_p = img_p.parent.parent / "metar" / "metar.txt"
-                if not metar_p.exists(): metar_p = img_p.parent / f"{img_p.stem}.txt"
-                if not metar_p.exists(): continue
+                # Resolve METAR key via fallback pattern (via storage so R2 works when active)
+                img_rel = Path(rel_path)
+                metar_candidates = [
+                    str(img_rel.parent.parent / "metar" / f"{img_rel.stem}.txt"),
+                    str(img_rel.parent.parent / "metar" / "metar.txt"),
+                    str(img_rel.parent / f"{img_rel.stem}.txt"),
+                ]
+                metar_key = next((c for c in metar_candidates if storage.exists(c)), None)
+                if metar_key is None:
+                    continue
 
-                frame = cv2.imread(str(img_p))
+                try:
+                    img_bytes = storage.get(rel_path)
+                except Exception:
+                    continue
+                frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
                 if frame is None: continue
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 tensor = train_transform(frame_rgb).to(trainer.device)
 
-                with open(metar_p, 'r') as f: metar_text = f.read().strip()
+                metar_text = storage.get_text(metar_key).strip()
                 vis, ceil = 0.0, 1.0
                 try:
                     obs = Metar.Metar(metar_text)
@@ -388,7 +421,7 @@ def batch(
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir)
+                trainer.model_wrapper.save_checkpoint(trainer.config_loader.checkpoint_dir, storage=storage)
                 print(f"  ↳ Best model saved (val_loss={val_loss:.4f})")
             
     if state_file.exists():
@@ -405,7 +438,12 @@ def batch(
         state_file.with_suffix(".tmp").rename(state_file)
     
     # Reload the best checkpoint (saved during training) for evaluation
-    trainer.model_wrapper.load_checkpoint(trainer.config_loader.checkpoint_dir)
+    trainer.model_wrapper.load_checkpoint(trainer.config_loader.checkpoint_dir, storage=storage)
+
+    # Clean up R2 cache if used
+    if isinstance(storage, CachedR2Storage):
+        storage.clear_cache()
+
     print(f"\nTraining complete (best val_loss={best_val_loss:.4f}). Running final evaluation...")
     import sys
     sys.path.append(str(Path.cwd()))

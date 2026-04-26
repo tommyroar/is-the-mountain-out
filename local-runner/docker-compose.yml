@@ -1,0 +1,28 @@
+# Long-running inference container for hosts that are always on (Mac mini, etc).
+#
+# Cloudflare Workers Container is the primary deploy target; this is the
+# alternative path. The two are interchangeable from the SPA's perspective:
+# both write web/public/state.json and web/public/history.jsonl back to git.
+#
+# Usage:
+#   cd local-runner
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d
+#   ./tick.sh        # one-off; wire to launchd / cron / Nomad for */15 cadence
+
+services:
+  inference:
+    image: ghcr.io/tommyroar/is-the-mountain-out/inference:${INFERENCE_IMAGE_TAG:-latest}
+    container_name: mountain-inference
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INFERENCE_PORT:-8080}:8080"
+    environment:
+      MODEL_VERSION: ${INFERENCE_IMAGE_TAG:-unknown}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
