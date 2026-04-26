@@ -243,3 +243,6 @@ web/dist/
 worker/node_modules/
 worker/dist/
 worker/.wrangler/
+
+# Local runner secrets
+local-runner/.env
