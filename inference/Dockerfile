@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Inference container: invoked by the Cloudflare Worker on each */15 cron tick.
-# Built for linux/amd64 (Cloudflare Containers run x86_64).
+# Inference container: invoked by the Cloudflare Worker on each */15 cron tick,
+# or by local-runner/ on long-running hosts. Published as a multi-arch image
+# (linux/amd64 for Cloudflare Containers, linux/arm64 for Apple Silicon hosts).
 
 ARG PYTHON_VERSION=3.14
 

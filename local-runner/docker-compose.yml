@@ -12,9 +12,9 @@
 
 services:
   inference:
-    image: ghcr.io/tommyroar/is-the-mountain-out/inference:${INFERENCE_IMAGE_TAG:-latest}
+    image: ${INFERENCE_IMAGE:-ghcr.io/tommyroar/is-the-mountain-out/inference:${INFERENCE_IMAGE_TAG:-latest}}
     container_name: mountain-inference
-    pull_policy: always
+    pull_policy: ${INFERENCE_PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${INFERENCE_PORT:-8080}:8080"
