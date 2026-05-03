@@ -84,6 +84,13 @@ git pull --rebase --quiet origin "$GIT_BRANCH"
 mkdir -p "$(dirname "$STATE_PATH")"
 mkdir -p "$(dirname "$HISTORY_PATH")"
 
+# Capture the previous headline class so we can decide whether the SPA
+# rebuild + GitHub Actions notification is actually warranted.
+prev_class=""
+if [[ -f "$STATE_PATH" ]]; then
+  prev_class="$(jq -r '.class_name // empty' "$STATE_PATH" 2>/dev/null || true)"
+fi
+
 # Always append to history.
 printf '%s\n' "$record" >> "$HISTORY_PATH"
 
@@ -100,7 +107,15 @@ fi
 
 if [[ "$status" == "ok" ]]; then
   ts="$(jq -r '.timestamp_utc // empty' "$STATE_PATH")"
+  new_class="$(jq -r '.class_name // empty' "$STATE_PATH" 2>/dev/null || true)"
   msg="chore: update mountain state ${ts:-$finished_at}"
+  # When class_name is unchanged the SPA renders identically — skip the
+  # update.yml run (and the GitHub mobile notification) by tagging the
+  # commit. Error ticks intentionally do *not* skip CI: surfacing inference
+  # failures is the whole point of the notification.
+  if [[ -n "$prev_class" && "$prev_class" == "$new_class" ]]; then
+    msg="$msg [skip ci]"
+  fi
 else
   msg="chore: log mountain inference error $finished_at"
 fi
