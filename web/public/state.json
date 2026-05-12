@@ -1,12 +1,12 @@
 {
-  "timestamp_utc": "2026-05-12T09:18:18Z",
+  "timestamp_utc": "2026-05-12T09:33:24Z",
   "class_index": 0,
   "class_name": "not_out",
   "is_out": false,
   "confidence": {
-    "not_out": 0.9980997443199158,
-    "full": 0.0010779734002426267,
-    "partial": 0.0008222779142670333
+    "not_out": 0.997227132320404,
+    "full": 0.0015052345115691423,
+    "partial": 0.0012676118640229106
   },
   "weather": {
     "station": "KSEA",
