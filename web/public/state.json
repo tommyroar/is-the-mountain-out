@@ -1,18 +1,18 @@
 {
-  "timestamp_utc": "2026-05-18T02:46:06Z",
+  "timestamp_utc": "2026-05-18T03:01:13Z",
   "class_index": 1,
   "class_name": "full",
   "is_out": true,
   "confidence": {
-    "not_out": 0.0023341772612184286,
-    "full": 0.8797206282615662,
-    "partial": 0.11794516444206238
+    "not_out": 0.0013582216342911124,
+    "full": 0.973023533821106,
+    "partial": 0.025618333369493484
   },
   "weather": {
     "station": "KSEA",
     "visibility_sm": 10.0,
     "ceiling_ft": null,
-    "raw": "KSEA 180153Z 29005KT 10SM FEW043 SCT250 16/04 A3025 RMK AO2 SLP252 T01610039 $"
+    "raw": "KSEA 180253Z 20004KT 10SM FEW043 SCT250 14/05 A3024 RMK AO2 SLP247 T01440050 58012 $"
   },
   "webcam_url": "https://atmos.uw.edu/data/images/webcam2_latest.jpg",
   "model_version": "latest"
