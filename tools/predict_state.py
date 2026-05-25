@@ -88,8 +88,8 @@ def git_short_sha() -> str | None:
         return None
 
 
-def predict(checkpoint_dir: str, webcam_url: str, station: str) -> dict:
-    model = ConvNextLoRAModel(num_classes=3, checkpoint_dir=checkpoint_dir, device="cpu")
+def predict(checkpoint_dir: str, webcam_url: str, station: str, storage=None) -> dict:
+    model = ConvNextLoRAModel(num_classes=3, checkpoint_dir=checkpoint_dir, device="cpu", storage=storage)
     model.model_dict.eval()
 
     image_tensor = fetch_webcam_tensor(webcam_url)

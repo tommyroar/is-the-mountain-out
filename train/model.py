@@ -6,9 +6,9 @@ from typing import List, Optional
 import os
 
 class ConvNextLoRAModel(nn.Module):
-    def __init__(self, num_classes: int = 3, rank: int = 8, alpha: int = 16, 
+    def __init__(self, num_classes: int = 3, rank: int = 8, alpha: int = 16,
                  target_modules: List[str] = ["fc1", "fc2"], device: str = "mps",
-                 checkpoint_dir: Optional[str] = None):
+                 checkpoint_dir: Optional[str] = None, storage=None):
         super().__init__()
         self.device = device if torch.backends.mps.is_available() else "cpu"
         
@@ -43,7 +43,7 @@ class ConvNextLoRAModel(nn.Module):
         self.model_dict.to(self.device)
 
         if checkpoint_dir:
-            self.load_checkpoint(checkpoint_dir)
+            self.load_checkpoint(checkpoint_dir, storage=storage)
 
     def forward(self, image_batch: torch.Tensor, weather_batch: torch.Tensor):
         features = self.model_dict['backbone'](image_batch)
