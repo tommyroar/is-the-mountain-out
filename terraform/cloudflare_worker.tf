@@ -13,8 +13,8 @@
 # routes, bindings, and migrations (declared in worker/wrangler.toml).
 
 locals {
-  worker_dir         = "${path.module}/../worker"
-  inference_image    = "ghcr.io/${var.github_owner}/${var.github_repo}/inference:${var.inference_image_tag}"
+  worker_dir      = "${path.module}/../worker"
+  inference_image = "ghcr.io/${var.github_owner}/${var.github_repo}/inference:${var.inference_image_tag}"
   worker_source_hash = sha256(join("", [
     filesha256("${local.worker_dir}/wrangler.toml"),
     filesha256("${local.worker_dir}/src/index.ts"),
