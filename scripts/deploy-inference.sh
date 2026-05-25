@@ -11,6 +11,8 @@
 #   R2_ACCESS_KEY_ID        R2 S3-API access key — pushed as Worker secret so the
 #                           container can pull its checkpoint from R2 at startup
 #   R2_SECRET_ACCESS_KEY    R2 S3-API secret access key (same purpose as above)
+#   NTFY_TOPIC              ntfy.sh topic UUID for mountain-out notifications
+#                           (the contents of ntfy.key — pushed as Worker secret)
 #
 # Optional:
 #   INFERENCE_IMAGE_TAG    Image tag to deploy (default: HEAD SHA on origin/main)
@@ -110,6 +112,7 @@ run_terraform() {
     TF_VAR_cloudflare_account_id="$CLOUDFLARE_ACCOUNT_ID" \
     TF_VAR_r2_access_key_id="$R2_ACCESS_KEY_ID" \
     TF_VAR_r2_secret_access_key="$R2_SECRET_ACCESS_KEY" \
+    TF_VAR_ntfy_topic="$NTFY_TOPIC" \
     TF_VAR_inference_image_tag="$tag" \
       terraform "$action" -input=false "${extra[@]}"
   )
@@ -131,6 +134,7 @@ main() {
   require_var CLOUDFLARE_ACCOUNT_ID
   require_var R2_ACCESS_KEY_ID
   require_var R2_SECRET_ACCESS_KEY
+  require_var NTFY_TOPIC
 
   command -v terraform >/dev/null 2>&1 || die "terraform not found in PATH"
   command -v npx >/dev/null 2>&1       || die "npx not found in PATH (install Node.js)"

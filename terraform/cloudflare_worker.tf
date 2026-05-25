@@ -88,3 +88,25 @@ resource "null_resource" "worker_secret_r2_secret_access_key" {
 
   depends_on = [null_resource.worker_deploy]
 }
+
+# ntfy.sh topic the Worker publishes to on Not-Out → visible transitions.
+resource "null_resource" "worker_secret_ntfy_topic" {
+  triggers = {
+    value_hash = sha256(var.ntfy_topic)
+  }
+
+  provisioner "local-exec" {
+    working_dir = local.worker_dir
+    environment = {
+      CLOUDFLARE_API_TOKEN  = var.cloudflare_api_token
+      CLOUDFLARE_ACCOUNT_ID = var.cloudflare_account_id
+      SECRET_VALUE          = var.ntfy_topic
+    }
+    command = <<-EOT
+      set -euo pipefail
+      printf '%s' "$SECRET_VALUE" | npx wrangler secret put NTFY_TOPIC --name mountain-inference
+    EOT
+  }
+
+  depends_on = [null_resource.worker_deploy]
+}

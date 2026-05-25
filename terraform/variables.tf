@@ -40,3 +40,9 @@ variable "r2_secret_access_key" {
   type        = string
   sensitive   = true
 }
+
+variable "ntfy_topic" {
+  description = "ntfy.sh topic UUID the Worker publishes mountain-out notifications to. Pushed to the Worker as a secret. The topic value is the secret on ntfy.sh — anyone who knows it can publish to or subscribe from it."
+  type        = string
+  sensitive   = true
+}
