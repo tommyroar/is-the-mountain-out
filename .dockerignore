@@ -12,6 +12,8 @@ ui/
 web/
 worker/
 nomad/
+local-runner/
+train/checkpoints/
 captures.ipynb
 .r2cache/
 *.tfstate*

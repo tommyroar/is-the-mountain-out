@@ -2,32 +2,34 @@
 //
 // Cron handler:
 //   1. Calls the bound container's /predict endpoint.
-//   2. Wraps the call in the same try/finally shape as
-//      tools/predict_state.py main() — every tick produces one structured
-//      record (status: "ok" with state, or status: "error" with traceback).
-//   3. On success: overwrites web/public/state.json via the GitHub Contents
-//      API and appends the record to web/public/history.jsonl.
-//   4. On failure: appends only the error record so state.json keeps showing
-//      the last good reading.
+//   2. Wraps the call in a try/finally that produces one structured record per
+//      tick (status: "ok" with state, or status: "error" with message).
+//   3. On success: overwrites state.json in the public R2 bucket.
+//   4. Always: appends a record to history.jsonl in R2 (GET, append, PUT —
+//      R2 has no append op, but at one record per 15min the file stays small).
 //
-// Output cadence and persistence are owned by Cloudflare; GitHub-hosted runners
-// are no longer in the inference path.
+// The container is passed R2 credentials as env vars so it can pull the
+// latest checkpoint from R2 on first /predict call. Worker writes the
+// inference output to a separate public R2 bucket the SPA reads from
+// directly — no GitHub Contents API in the inference path.
 
 import { Container, getContainer } from "@cloudflare/containers";
 
-export class InferenceContainer extends Container {
-  defaultPort = 8080;
-  sleepAfter = "5m";
-}
-
 interface Env {
   INFERENCE_CONTAINER: DurableObjectNamespace<InferenceContainer>;
-  GITHUB_OWNER: string;
-  GITHUB_REPO: string;
-  GITHUB_BRANCH: string;
-  STATE_PATH: string;
-  HISTORY_PATH: string;
-  GITHUB_TOKEN: string;
+  STATE_BUCKET: R2Bucket;
+  R2_ACCESS_KEY_ID: string;
+  R2_SECRET_ACCESS_KEY: string;
+}
+
+export class InferenceContainer extends Container<Env> {
+  defaultPort = 8080;
+  sleepAfter = "5m";
+
+  override envVars = {
+    R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY,
+  };
 }
 
 interface PredictionState {
@@ -57,6 +59,9 @@ type HistoryRecord =
       error: { type: string; message: string };
     };
 
+const STATE_KEY = "state.json";
+const HISTORY_KEY = "history.jsonl";
+
 const isoUtc = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 
 async function callContainer(env: Env): Promise<PredictionState> {
@@ -69,71 +74,19 @@ async function callContainer(env: Env): Promise<PredictionState> {
   return (await resp.json()) as PredictionState;
 }
 
-const ghHeaders = (token: string) => ({
-  Authorization: `Bearer ${token}`,
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-  "User-Agent": "mountain-inference-worker",
-});
-
-async function readFile(env: Env, path: string): Promise<{ content: string; sha: string } | null> {
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`;
-  const resp = await fetch(url, { headers: ghHeaders(env.GITHUB_TOKEN) });
-  if (resp.status === 404) return null;
-  if (!resp.ok) {
-    throw new Error(`GitHub GET ${path} failed: ${resp.status} ${await resp.text()}`);
-  }
-  const data = (await resp.json()) as { content: string; sha: string; encoding: string };
-  const content =
-    data.encoding === "base64"
-      ? new TextDecoder().decode(Uint8Array.from(atob(data.content.replace(/\n/g, "")), (c) => c.charCodeAt(0)))
-      : data.content;
-  return { content, sha: data.sha };
-}
-
-async function writeFile(
-  env: Env,
-  path: string,
-  content: string,
-  message: string,
-  prevSha: string | null,
-): Promise<void> {
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}`;
-  const body: Record<string, unknown> = {
-    message,
-    content: btoa(unescape(encodeURIComponent(content))),
-    branch: env.GITHUB_BRANCH,
-  };
-  if (prevSha) body.sha = prevSha;
-  const resp = await fetch(url, {
-    method: "PUT",
-    headers: { ...ghHeaders(env.GITHUB_TOKEN), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+async function publishState(env: Env, state: PredictionState): Promise<void> {
+  await env.STATE_BUCKET.put(STATE_KEY, JSON.stringify(state, null, 2) + "\n", {
+    httpMetadata: { contentType: "application/json" },
   });
-  if (!resp.ok) {
-    throw new Error(`GitHub PUT ${path} failed: ${resp.status} ${await resp.text()}`);
-  }
 }
 
 async function appendHistory(env: Env, record: HistoryRecord): Promise<void> {
-  const existing = await readFile(env, env.HISTORY_PATH);
-  const line = JSON.stringify(record) + "\n";
-  const next = (existing?.content ?? "") + line;
-  const ts = record.finished_at;
-  await writeFile(env, env.HISTORY_PATH, next, `chore: log mountain inference ${ts}`, existing?.sha ?? null);
-}
-
-async function publishState(env: Env, state: PredictionState): Promise<void> {
-  const existing = await readFile(env, env.STATE_PATH);
-  const content = JSON.stringify(state, null, 2) + "\n";
-  if (existing && existing.content === content) return;
-  await writeFile(
-    env,
-    env.STATE_PATH,
-    content,
-    `chore: update mountain state ${state.timestamp_utc}`,
-    existing?.sha ?? null,
-  );
+  const existing = await env.STATE_BUCKET.get(HISTORY_KEY);
+  const prev = existing ? await existing.text() : "";
+  const next = prev + JSON.stringify(record) + "\n";
+  await env.STATE_BUCKET.put(HISTORY_KEY, next, {
+    httpMetadata: { contentType: "application/x-ndjson" },
+  });
 }
 
 async function tick(env: Env): Promise<void> {

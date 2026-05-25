@@ -6,10 +6,11 @@
 # and worker/wrangler.toml into one command.
 #
 # Required env vars:
-#   CLOUDFLARE_API_TOKEN   Cloudflare API token (Workers + R2 + Containers scopes)
-#   CLOUDFLARE_ACCOUNT_ID  Cloudflare account ID
-#   GITHUB_PAT             Fine-grained PAT with Contents: read+write on this repo;
-#                          stored as the Worker's GITHUB_TOKEN secret
+#   CLOUDFLARE_API_TOKEN    Cloudflare API token (Workers + R2 + Containers scopes)
+#   CLOUDFLARE_ACCOUNT_ID   Cloudflare account ID
+#   R2_ACCESS_KEY_ID        R2 S3-API access key — pushed as Worker secret so the
+#                           container can pull its checkpoint from R2 at startup
+#   R2_SECRET_ACCESS_KEY    R2 S3-API secret access key (same purpose as above)
 #
 # Optional:
 #   INFERENCE_IMAGE_TAG    Image tag to deploy (default: HEAD SHA on origin/main)
@@ -107,7 +108,8 @@ run_terraform() {
     fi
     TF_VAR_cloudflare_api_token="$CLOUDFLARE_API_TOKEN" \
     TF_VAR_cloudflare_account_id="$CLOUDFLARE_ACCOUNT_ID" \
-    TF_VAR_github_pat="$GITHUB_PAT" \
+    TF_VAR_r2_access_key_id="$R2_ACCESS_KEY_ID" \
+    TF_VAR_r2_secret_access_key="$R2_SECRET_ACCESS_KEY" \
     TF_VAR_inference_image_tag="$tag" \
       terraform "$action" -input=false "${extra[@]}"
   )
@@ -127,7 +129,8 @@ maybe_tail() {
 main() {
   require_var CLOUDFLARE_API_TOKEN
   require_var CLOUDFLARE_ACCOUNT_ID
-  require_var GITHUB_PAT
+  require_var R2_ACCESS_KEY_ID
+  require_var R2_SECRET_ACCESS_KEY
 
   command -v terraform >/dev/null 2>&1 || die "terraform not found in PATH"
   command -v npx >/dev/null 2>&1       || die "npx not found in PATH (install Node.js)"

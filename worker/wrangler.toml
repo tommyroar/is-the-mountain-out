@@ -6,13 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [triggers]
 crons = ["*/15 * * * *"]
 
-[vars]
-GITHUB_OWNER = "tommyroar"
-GITHUB_REPO = "is-the-mountain-out"
-GITHUB_BRANCH = "main"
-STATE_PATH = "web/public/state.json"
-HISTORY_PATH = "web/public/history.jsonl"
-
 # Container binding — image tag is set by Terraform / wrangler deploy.
 # The image is pulled from GHCR; see .github/workflows/build-inference-image.yml.
 [[containers]]
@@ -29,3 +22,8 @@ new_sqlite_classes = ["InferenceContainer"]
 bindings = [
   { class_name = "InferenceContainer", name = "INFERENCE_CONTAINER" }
 ]
+
+# Public bucket the SPA reads from. Worker writes state.json + history.jsonl.
+[[r2_buckets]]
+binding = "STATE_BUCKET"
+bucket_name = "is-the-mountain-out-public"

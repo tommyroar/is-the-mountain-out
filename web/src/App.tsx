@@ -82,7 +82,7 @@ function App() {
     let cancelled = false
     const load = async () => {
       try {
-        const resp = await fetch(`${import.meta.env.BASE_URL}state.json?t=${Date.now()}`)
+        const resp = await fetch(`${import.meta.env.VITE_STATE_URL}?t=${Date.now()}`)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const json = (await resp.json()) as State
         if (!cancelled) {
