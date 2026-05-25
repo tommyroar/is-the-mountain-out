@@ -34,8 +34,8 @@ data_root = "data"
 collection_seconds = 600 # 10 minutes for collection service (interval-based)
 # schedule = { Minute = 0 } # Optional: Run every hour on the hour (calendar-based)
 
-# [storage]
-# backend = "r2"                              # "local" (default) or "r2"
-# r2_account_id = "your-cloudflare-account-id"
-# r2_bucket = "is-the-mountain-out-captures"
-# cache_dir = ".r2cache"                      # local cache for batch training
+[storage]
+backend = "r2"
+r2_account_id = "d7adee58513c1b2f770ccaac90cf114f"
+r2_bucket = "is-the-mountain-out"
+cache_dir = ".r2cache"

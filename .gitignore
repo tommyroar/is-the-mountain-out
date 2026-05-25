@@ -225,6 +225,7 @@ __pycache__/
 mapbox.key
 ntfy.key
 openjd_rfcs.md
+cf.env
 
 # Terraform state (contains sensitive data)
 *.tfstate

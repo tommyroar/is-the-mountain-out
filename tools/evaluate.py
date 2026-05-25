@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import torch
+import numpy as np
 from pathlib import Path
 import cv2
 from torchvision import transforms
@@ -16,20 +17,21 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 # Add root to path for imports
 sys.path.append(str(Path.cwd()))
 from train.model import ConvNextLoRAModel
+from train.config_loader import ConfigLoader
 
-def get_metar_vector(img_path):
-    search_paths = [
-        img_path.parent.parent / "metar" / "metar.txt",
-        img_path.parent / "metar.txt",
-        img_path.parent / f"{img_path.stem}.txt"
+def get_metar_vector(storage, img_key: str):
+    img_rel = Path(img_key)
+    candidates = [
+        str(img_rel.parent.parent / "metar" / "metar.txt"),
+        str(img_rel.parent / "metar.txt"),
+        str(img_rel.parent / f"{img_rel.stem}.txt"),
     ]
     metar_text = None
-    for p in search_paths:
-        if p.exists():
-            with open(p, 'r') as f:
-                metar_text = f.read().strip()
+    for c in candidates:
+        if storage.exists(c):
+            metar_text = storage.get_text(c).strip()
             break
-    
+
     vis, ceil = 0.0, 1.0 # Default bad
     if metar_text:
         try:
@@ -45,22 +47,23 @@ def evaluate(checkpoint_dir: str, labels_file: str):
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Loading checkpoint from: {checkpoint_dir}")
     print(f"Using device: {device}")
-    
+
     model = ConvNextLoRAModel(
-        num_classes=3, 
-        checkpoint_dir=checkpoint_dir, 
+        num_classes=3,
+        checkpoint_dir=checkpoint_dir,
         device=device
     )
     model.model_dict.eval()
 
     labels_path = Path(labels_file)
     data_root = labels_path.parent
-    
+    storage = ConfigLoader().get_storage(str(data_root))
+
     with open(labels_path, "r") as f:
         labels_map = yaml.safe_load(f) or {}
 
     print(f"Found {len(labels_map)} labels in {labels_file}")
-    
+
     transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize(224),
@@ -71,27 +74,30 @@ def evaluate(checkpoint_dir: str, labels_file: str):
 
     true_labels = []
     pred_labels = []
-    
+
     print("Running inference...")
     with torch.no_grad():
         for rel_path, label in labels_map.items():
-            img_p = data_root / rel_path
-            if not img_p.exists():
+            if not storage.exists(rel_path):
                 continue
-                
-            frame = cv2.imread(str(img_p))
+
+            try:
+                img_bytes = storage.get(rel_path)
+            except Exception:
+                continue
+            frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
             if frame is None:
                 continue
-            
+
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img_tensor = transform(frame_rgb).unsqueeze(0).to(device)
-            
-            weather = get_metar_vector(img_p)
+
+            weather = get_metar_vector(storage, rel_path)
             weather_tensor = torch.tensor([weather], dtype=torch.float32).to(device)
-            
+
             output = model(img_tensor, weather_tensor)
             pred = torch.argmax(output, dim=1).item()
-            
+
             true_labels.append(label)
             pred_labels.append(pred)
 

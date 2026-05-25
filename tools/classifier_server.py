@@ -90,10 +90,13 @@ def get_jobs():
 @app.get("/api/images")
 def get_images(batch_size: int = 20, offset: int = 0):
     labels = load_labels()
-    all_images = sorted([str(p.relative_to(DATA_ROOT)) for p in DATA_ROOT.rglob("*.jpg")])
-    
+    if _r2_storage is not None:
+        all_images = sorted(k for k in _r2_storage.list_keys() if k.endswith(".jpg"))
+    else:
+        all_images = sorted(str(p.relative_to(DATA_ROOT)) for p in DATA_ROOT.rglob("*.jpg"))
+
     unlabeled = [img for img in all_images if img not in labels]
-    
+
     return {
         "images": unlabeled[:batch_size],
         "total_unlabeled": len(unlabeled),

@@ -27,6 +27,7 @@ class StorageBackend(Protocol):
     def get_text(self, key: str) -> str: ...
     def list_keys(self, prefix: str = "") -> list[str]: ...
     def exists(self, key: str) -> bool: ...
+    def delete(self, key: str) -> None: ...
 
 
 class LocalStorage:
@@ -63,6 +64,9 @@ class LocalStorage:
 
     def exists(self, key: str) -> bool:
         return (self.root / key).exists()
+
+    def delete(self, key: str) -> None:
+        (self.root / key).unlink(missing_ok=True)
 
 
 class R2Storage:
@@ -123,6 +127,9 @@ class R2Storage:
         except self._client.exceptions.ClientError:
             return False
 
+    def delete(self, key: str) -> None:
+        self._client.delete_object(Bucket=self.bucket, Key=key)
+
     def presign(self, key: str, expires: int = 3600) -> str:
         """Return a pre-signed GET URL valid for *expires* seconds."""
         return self._client.generate_presigned_url(
@@ -175,6 +182,12 @@ class CachedR2Storage:
     def exists(self, key: str) -> bool:
         cached = self.cache_dir / key
         return cached.exists() or self.r2.exists(key)
+
+    def delete(self, key: str) -> None:
+        cached = self.cache_dir / key
+        if cached.exists():
+            cached.unlink()
+        self.r2.delete(key)
 
     def presign(self, key: str, expires: int = 3600) -> str:
         return self.r2.presign(key, expires)
