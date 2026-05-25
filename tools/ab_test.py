@@ -33,21 +33,19 @@ sys.path.append(str(Path.cwd()))
 from train.model import ConvNextLoRAModel
 from train.config_loader import ConfigLoader
 
-def get_metar_vector(img_path):
-    # ... (rest of function unchanged)
-    # Search for metar.txt
-    search_paths = [
-        img_path.parent.parent / "metar" / "metar.txt",
-        img_path.parent / "metar.txt",
-        img_path.parent / f"{img_path.stem}.txt"
+def get_metar_vector(storage, img_key: str):
+    img_rel = Path(img_key)
+    candidates = [
+        str(img_rel.parent.parent / "metar" / "metar.txt"),
+        str(img_rel.parent / "metar.txt"),
+        str(img_rel.parent / f"{img_rel.stem}.txt"),
     ]
     metar_text = None
-    for p in search_paths:
-        if p.exists():
-            with open(p, 'r') as f:
-                metar_text = f.read().strip()
+    for c in candidates:
+        if storage.exists(c):
+            metar_text = storage.get_text(c).strip()
             break
-    
+
     vis, ceil = 0.0, 1.0 # Default bad
     if metar_text:
         try:
@@ -59,7 +57,7 @@ def get_metar_vector(img_path):
         except: pass
     return [vis, ceil]
 
-def run_experiment(variant_name, data_list, folds=3):
+def run_experiment(variant_name, data_list, storage, folds=3):
     print(f"\n🚀 Starting Experiment: {variant_name}", flush=True)
     
     kf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
@@ -111,7 +109,11 @@ def run_experiment(variant_name, data_list, folds=3):
                 
                 imgs, weathers, lbls = [], [], []
                 for item in batch:
-                    img = cv2.imread(str(item['abs_path']))
+                    try:
+                        img_bytes = storage.get(item['path'])
+                    except Exception:
+                        continue
+                    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
                     if img is None: continue
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     imgs.append(transform(img))
@@ -140,7 +142,11 @@ def run_experiment(variant_name, data_list, folds=3):
         with torch.no_grad():
             for i in val_idx:
                 item = data_list[i]
-                img = cv2.imread(str(item['abs_path']))
+                try:
+                    img_bytes = storage.get(item['path'])
+                except Exception:
+                    continue
+                img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
                 if img is None: continue
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 img_tensor = transform(img).unsqueeze(0).to(device)
@@ -175,19 +181,19 @@ def run_experiment(variant_name, data_list, folds=3):
 
 if __name__ == "__main__":
     data_root = Path("data")
+    storage = ConfigLoader().get_storage(str(data_root))
+
     with open(data_root / "labels.yaml", "r") as f:
         labels_map = yaml.safe_load(f) or {}
-    
+
     print(f"Loading and pre-processing {len(labels_map)} images...")
     processed_data = []
     for rel_path, label in labels_map.items():
-        abs_path = data_root / rel_path
-        if not abs_path.exists(): continue
-        
-        weather = get_metar_vector(abs_path)
+        if not storage.exists(rel_path): continue
+
+        weather = get_metar_vector(storage, rel_path)
         processed_data.append({
             'path': rel_path,
-            'abs_path': abs_path,
             'label': label,
             'weather': weather
         })
@@ -212,9 +218,9 @@ if __name__ == "__main__":
         sparse_data.append(new_item)
 
     results = []
-    results.append(run_experiment("Vision Only", processed_data))
-    results.append(run_experiment("Full METAR", processed_data))
-    results.append(run_experiment("Sparse METAR", sparse_data))
+    results.append(run_experiment("Vision Only", processed_data, storage))
+    results.append(run_experiment("Full METAR", processed_data, storage))
+    results.append(run_experiment("Sparse METAR", sparse_data, storage))
 
     df = pd.DataFrame(results)
     print("\n📊 --- A/B TEST RESULTS ---")
