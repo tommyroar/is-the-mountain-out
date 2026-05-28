@@ -20,6 +20,7 @@ interface Env {
   STATE_BUCKET: R2Bucket;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
+  NTFY_TOPIC: string;
 }
 
 export class InferenceContainer extends Container<Env> {
@@ -80,6 +81,60 @@ async function publishState(env: Env, state: PredictionState): Promise<void> {
   });
 }
 
+async function getPreviousState(env: Env): Promise<PredictionState | null> {
+  try {
+    const obj = await env.STATE_BUCKET.get(STATE_KEY);
+    if (!obj) return null;
+    return JSON.parse(await obj.text()) as PredictionState;
+  } catch (e) {
+    console.warn("failed to read previous state for transition check:", e);
+    return null;
+  }
+}
+
+async function ntfyPublish(env: Env, payload: Record<string, unknown>): Promise<void> {
+  if (!env.NTFY_TOPIC) {
+    console.warn("NTFY_TOPIC not set; skipping notification");
+    return;
+  }
+  try {
+    const resp = await fetch("https://ntfy.sh/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: env.NTFY_TOPIC, ...payload }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "<unreadable>");
+      console.error(`ntfy publish ${resp.status}: ${body.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.error("ntfy publish threw:", e);
+  }
+}
+
+// Fire only on the Not Out → visible transition, mirroring tools/detect_mountain.py.
+async function notifyTransition(env: Env, prev: PredictionState | null, next: PredictionState): Promise<void> {
+  if (!next.is_out) return;
+  if (prev?.is_out) return;
+  const visible = (next.confidence?.full ?? 0) + (next.confidence?.partial ?? 0);
+  const label = next.class_name === "full" ? "Full" : "Partial";
+  await ntfyPublish(env, {
+    title: "🏔️ THE MOUNTAIN IS OUT",
+    message: `Mount Rainier is visible (${label}). Confidence: ${(visible * 100).toFixed(1)}%`,
+    priority: 5,
+    tags: ["mountain_snow_capped"],
+  });
+}
+
+async function sendNotificationTest(env: Env): Promise<void> {
+  await ntfyPublish(env, {
+    title: "🏔️ Worker notification test",
+    message: "Test from mountain-inference Worker. If you see this on your phone, the Worker → ntfy.sh path is healthy.",
+    priority: 3,
+    tags: ["test_tube"],
+  });
+}
+
 async function appendHistory(env: Env, record: HistoryRecord): Promise<void> {
   const existing = await env.STATE_BUCKET.get(HISTORY_KEY);
   const prev = existing ? await existing.text() : "";
@@ -93,8 +148,11 @@ async function tick(env: Env): Promise<void> {
   const startedAt = new Date();
   let record: HistoryRecord;
   try {
+    // Read prev state BEFORE the new write so we can compare for transition detection.
+    const prev = await getPreviousState(env);
     const state = await callContainer(env);
     await publishState(env, state);
+    await notifyTransition(env, prev, state);
     const finishedAt = new Date();
     record = {
       started_at: isoUtc(startedAt),
@@ -128,6 +186,10 @@ export default {
     if (url.pathname === "/run" && req.method === "POST") {
       ctx.waitUntil(tick(env));
       return new Response("queued\n", { status: 202 });
+    }
+    if (url.pathname === "/notify-test" && req.method === "POST") {
+      ctx.waitUntil(sendNotificationTest(env));
+      return new Response("test notification queued\n", { status: 202 });
     }
     return new Response("mountain-inference worker\n", { status: 200 });
   },
