@@ -11,10 +11,12 @@
 #   R2_ACCESS_KEY_ID        R2 S3-API access key — pushed as Worker secret so the
 #                           container can pull its checkpoint from R2 at startup
 #   R2_SECRET_ACCESS_KEY    R2 S3-API secret access key (same purpose as above)
-#   NTFY_TOPIC              ntfy.sh topic UUID for mountain-out notifications
-#                           (the contents of ntfy.key — pushed as Worker secret)
 #
 # Optional:
+#   NTFY_TOPIC             ntfy.sh topic for mountain-out notifications. Auto-loaded
+#                          from the gitignored ntfy.key when unset, so you normally
+#                          don't set this. Kept private (pushed as a Worker secret),
+#                          but it's just a topic name — not a high-security secret.
 #   INFERENCE_IMAGE_TAG    Image tag to deploy (default: HEAD SHA on origin/main)
 #   GH_TOKEN               PAT for polling GHCR for the image; defaults to gh CLI auth
 #   SKIP_IMAGE_WAIT=1      Don't poll GHCR — assume the image already exists
@@ -41,6 +43,18 @@ require_var() {
   if [[ -z "${!name:-}" ]]; then
     die "$name is required (export it or set it in your shell)"
   fi
+}
+
+# NTFY_TOPIC is kept private but isn't high-security — auto-source it from the
+# gitignored ntfy.key so a deploy sets it automatically without it being typed
+# by hand or committed to this public repo.
+load_ntfy_topic() {
+  [[ -n "${NTFY_TOPIC:-}" ]] && return 0
+  local f="$REPO_ROOT/ntfy.key"
+  [[ -r "$f" ]] || return 0
+  NTFY_TOPIC="$(tr -d '[:space:]' < "$f")"
+  export NTFY_TOPIC
+  [[ -n "$NTFY_TOPIC" ]] && log "Loaded NTFY_TOPIC from ntfy.key"
 }
 
 resolve_image_tag() {
@@ -134,6 +148,7 @@ main() {
   require_var CLOUDFLARE_ACCOUNT_ID
   require_var R2_ACCESS_KEY_ID
   require_var R2_SECRET_ACCESS_KEY
+  load_ntfy_topic
   require_var NTFY_TOPIC
 
   command -v terraform >/dev/null 2>&1 || die "terraform not found in PATH"
