@@ -25,12 +25,36 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 import requests
+
+# Hard wall-clock cap per check. requests timeouts are not reliably honored when
+# this runs under launchd (the connect/TLS phase can hang well past the socket
+# timeout), and a scheduled job must never hang and pile up. SIGALRM guarantees
+# the process exits; the next */15 run retries.
+WATCHDOG_SECONDS = 45
+
+
+class _Watchdog(Exception):
+    pass
+
+
+def _run_guarded(fn) -> None:
+    def _handler(signum, frame):
+        raise _Watchdog(f"check exceeded {WATCHDOG_SECONDS}s; aborting")
+
+    old = signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(WATCHDOG_SECONDS)
+    try:
+        fn()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 # Public bucket URL the SPA also reads (web/.env.production: VITE_STATE_URL).
 STATE_URL = "https://pub-66d3d1f139004e29b2afcb5fba49bdb3.r2.dev/state.json"
@@ -171,18 +195,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.test:
-        send_test()
-        return
-    if args.once:
-        check_once()
+    if args.test or args.once:
+        try:
+            _run_guarded(send_test if args.test else check_once)
+        except Exception as e:
+            print(f"! check failed: {e}", file=sys.stderr)
+            raise SystemExit(1)
         return
 
     print(f"local_notifier polling {STATE_URL} every {args.interval}s (Ctrl-C to stop)")
     while True:
         try:
-            check_once()
-        except Exception as e:  # network blip, malformed state — log and keep going
+            _run_guarded(check_once)
+        except Exception as e:  # network blip, malformed state, watchdog — log and keep going
             print(f"! check failed: {e}", file=sys.stderr)
         time.sleep(args.interval)
 
