@@ -14,7 +14,7 @@ crons = ["*/15 * * * *"]
 # See .github/workflows/build-inference-image.yml for the upstream GHCR build.
 [[containers]]
 class_name = "InferenceContainer"
-image = "registry.cloudflare.com/d7adee58513c1b2f770ccaac90cf114f/mountain-inference:745dfb1"
+image = "registry.cloudflare.com/d7adee58513c1b2f770ccaac90cf114f/mountain-inference:28b43b0"
 max_instances = 1
 instance_type = "standard-1"
 
