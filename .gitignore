@@ -225,6 +225,9 @@ __pycache__/
 mapbox.key
 ntfy.key
 ntfy-token.key
+
+# Runtime state for tools/local_notifier.py (last seen is_out, for transition detection)
+data/local_notifier_state.json
 openjd_rfcs.md
 cf.env
 
