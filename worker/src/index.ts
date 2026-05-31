@@ -21,6 +21,10 @@ interface Env {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   NTFY_TOPIC: string;
+  // Optional ntfy.sh access token. Without it, publishing goes out anonymously
+  // and is rate-limited per source IP — which fails (HTTP 429) from Cloudflare's
+  // shared egress IPs. With a token, the quota is attributed to the ntfy account.
+  NTFY_TOKEN?: string;
 }
 
 export class InferenceContainer extends Container<Env> {
@@ -97,10 +101,12 @@ async function ntfyPublish(env: Env, payload: Record<string, unknown>): Promise<
     console.warn("NTFY_TOPIC not set; skipping notification");
     return;
   }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (env.NTFY_TOKEN) headers["Authorization"] = `Bearer ${env.NTFY_TOKEN}`;
   try {
     const resp = await fetch("https://ntfy.sh/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ topic: env.NTFY_TOPIC, ...payload }),
     });
     if (!resp.ok) {

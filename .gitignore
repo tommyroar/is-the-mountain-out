@@ -224,6 +224,7 @@ __pycache__/
 # Project secrets
 mapbox.key
 ntfy.key
+ntfy-token.key
 openjd_rfcs.md
 cf.env
 
