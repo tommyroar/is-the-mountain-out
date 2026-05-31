@@ -68,6 +68,20 @@ FastAPI server writes its port to `data/classifier_server.port` at startup (dyna
 
 Single source of truth for webcam URL, METAR station (`KSEA`), LoRA hyperparameters, checkpoint directory, collection intervals, and training schedule. Loaded via `train/config_loader.py`.
 
+## Deployment (Cloudflare)
+
+Inference runs as the `mountain-inference` Cloudflare Worker + Container (cron `*/15`), with R2 for storage and Pages for the SPA. There are two deploy paths; **prefer wrangler**:
+
+- **wrangler (current, preferred):** `scripts/deploy-worker.sh` runs `npx wrangler deploy` from `worker/` and records a GitHub Deployment. This is what the live Worker uses (`last_deployed_from: wrangler`). Secrets are set out-of-band with `wrangler secret put` and only go live on the next `wrangler deploy`.
+- **Terraform (`scripts/deploy-inference.sh` + `terraform/`):** retained as the intended path for reproducibility/IaC later, but the `terraform/` dir is currently absent and the script's TF path is stale — don't rely on it until it's rebuilt. Treat it as aspirational, not the working deploy.
+
+Worker secrets (set via `wrangler secret put`, sourced from gitignored files at repo root):
+- `NTFY_TOPIC` ← `ntfy.key` — ntfy.sh topic to publish to.
+- `NTFY_TOKEN` ← `ntfy-token.key` — ntfy.sh access token. Required in practice: anonymous publishing is rate-limited per source IP and returns HTTP 429 from Cloudflare's shared egress IPs.
+- `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` ← `cf.env` — let the container pull its checkpoint from R2 on cold start.
+
+Notification failures are silent: `/notify-test` always returns `202` (publish is queued via `waitUntil`) and ntfy errors are only `console.error`'d. To diagnose, `cd worker && npx wrangler tail --format json` and look for `ntfy publish <status>`.
+
 ## Key Design Constraints
 
 - **Zero-disk training:** Live frames go directly to tensors — never written to disk during live loops.
