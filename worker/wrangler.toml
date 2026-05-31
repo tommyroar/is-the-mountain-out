@@ -6,13 +6,17 @@ compatibility_flags = ["nodejs_compat"]
 [triggers]
 crons = ["*/15 * * * *"]
 
-# Container binding — image tag is set by Terraform / wrangler deploy.
-# The image is pulled from GHCR; see .github/workflows/build-inference-image.yml.
+# Container binding. Cloudflare Containers can only pull from its own managed
+# registry (not GHCR), so the image is pushed to registry.cloudflare.com:
+#   docker pull ghcr.io/tommyroar/is-the-mountain-out/inference:latest
+#   docker tag  ... mountain-inference:latest
+#   wrangler containers push mountain-inference:latest
+# See .github/workflows/build-inference-image.yml for the upstream GHCR build.
 [[containers]]
 class_name = "InferenceContainer"
-image = "ghcr.io/tommyroar/is-the-mountain-out/inference:latest"
+image = "registry.cloudflare.com/d7adee58513c1b2f770ccaac90cf114f/mountain-inference:745dfb1"
 max_instances = 1
-instance_type = "standard"
+instance_type = "standard-1"
 
 [[migrations]]
 tag = "v1"
