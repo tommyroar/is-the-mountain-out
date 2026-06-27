@@ -75,12 +75,11 @@ Inference runs as the `mountain-inference` Cloudflare Worker + Container (cron `
 - **wrangler (current, preferred):** `scripts/deploy-worker.sh` runs `npx wrangler deploy` from `worker/` and records a GitHub Deployment. This is what the live Worker uses (`last_deployed_from: wrangler`). Secrets are set out-of-band with `wrangler secret put` and only go live on the next `wrangler deploy`.
 - **Terraform (`scripts/deploy-inference.sh` + `terraform/`):** retained as the intended path for reproducibility/IaC later, but the `terraform/` dir is currently absent and the script's TF path is stale — don't rely on it until it's rebuilt. Treat it as aspirational, not the working deploy.
 
-Worker secrets (set via `wrangler secret put`, sourced from gitignored files at repo root):
-- `NTFY_TOPIC` ← `ntfy.key` — ntfy.sh topic to publish to.
-- `NTFY_TOKEN` ← `ntfy-token.key` — ntfy.sh access token. Required in practice: anonymous publishing is rate-limited per source IP and returns HTTP 429 from Cloudflare's shared egress IPs.
+Worker secrets (set via `wrangler secret put`):
+- `DISCORD_WEBHOOK_URL` — Discord channel webhook URL the Worker posts visibility embeds to (the URL *is* the secret). Set with `npx wrangler secret put DISCORD_WEBHOOK_URL` from `worker/`. See `NOTIFICATIONS.md`. (Replaced the former `NTFY_TOPIC`/`NTFY_TOKEN` ntfy.sh secrets — those and the gitignored `ntfy.key`/`ntfy-token.key` files are now obsolete.)
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` ← `cf.env` — let the container pull its checkpoint from R2 on cold start.
 
-Notification failures are silent: `/notify-test` always returns `202` (publish is queued via `waitUntil`) and ntfy errors are only `console.error`'d. To diagnose, `cd worker && npx wrangler tail --format json` and look for `ntfy publish <status>`.
+Notifications fire on the **Not Out → visible** transition via `worker/src/discord-mountain-notify.ts`. Failures are silent: `/notify-test` always returns `202` (publish is queued via `waitUntil`) and Discord errors are only `console.error`'d. To diagnose, `cd worker && npx wrangler tail --format json` and look for `Discord ... failed` or `DISCORD_WEBHOOK_URL not set`.
 
 ## Key Design Constraints
 
