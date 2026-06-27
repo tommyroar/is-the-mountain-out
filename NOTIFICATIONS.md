@@ -33,9 +33,10 @@ npx wrangler deploy   # secrets only go live on the next deploy
 
 > **Obsolete:** the former `NTFY_TOPIC` / `NTFY_TOKEN` secrets and the gitignored
 > `ntfy.key` / `ntfy-token.key` files at the repo root are no longer used by the Worker.
-> You can delete the old secrets with `npx wrangler secret delete NTFY_TOPIC` (and
-> `NTFY_TOKEN`) and remove the key files. (The local-only `tools/local_notifier.py`
-> fallback still references ntfy and is out of scope for this change.)
+> Delete the old secrets with `npx wrangler secret delete NTFY_TOPIC` (and `NTFY_TOKEN`)
+> and remove the key files. The local-only `tools/local_notifier.py` stopgap (and its
+> `com.tommydoerr.mountain-notifier` launchd job) has been **retired** — the Worker posts
+> to Discord directly, so the IP-dodging local fallback is no longer needed.
 
 ## Test
 
