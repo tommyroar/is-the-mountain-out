@@ -14,17 +14,17 @@
 // directly — no GitHub Contents API in the inference path.
 
 import { Container, getContainer } from "@cloudflare/containers";
+import { notifyDiscordTest, notifyMountainVisibility } from "./discord-mountain-notify";
 
 interface Env {
   INFERENCE_CONTAINER: DurableObjectNamespace<InferenceContainer>;
   STATE_BUCKET: R2Bucket;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
-  NTFY_TOPIC: string;
-  // Optional ntfy.sh access token. Without it, publishing goes out anonymously
-  // and is rate-limited per source IP — which fails (HTTP 429) from Cloudflare's
-  // shared egress IPs. With a token, the quota is attributed to the ntfy account.
-  NTFY_TOKEN?: string;
+  // Discord webhook URL the Worker posts visibility transitions to. Optional so
+  // a missing secret degrades to a logged skip rather than a thrown error. Set
+  // out-of-band with `wrangler secret put DISCORD_WEBHOOK_URL`.
+  DISCORD_WEBHOOK_URL?: string;
 }
 
 export class InferenceContainer extends Container<Env> {
@@ -96,49 +96,23 @@ async function getPreviousState(env: Env): Promise<PredictionState | null> {
   }
 }
 
-async function ntfyPublish(env: Env, payload: Record<string, unknown>): Promise<void> {
-  if (!env.NTFY_TOPIC) {
-    console.warn("NTFY_TOPIC not set; skipping notification");
-    return;
-  }
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (env.NTFY_TOKEN) headers["Authorization"] = `Bearer ${env.NTFY_TOKEN}`;
-  try {
-    const resp = await fetch("https://ntfy.sh/", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ topic: env.NTFY_TOPIC, ...payload }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "<unreadable>");
-      console.error(`ntfy publish ${resp.status}: ${body.slice(0, 200)}`);
-    }
-  } catch (e) {
-    console.error("ntfy publish threw:", e);
-  }
-}
-
 // Fire only on the Not Out → visible transition, mirroring tools/detect_mountain.py.
 async function notifyTransition(env: Env, prev: PredictionState | null, next: PredictionState): Promise<void> {
   if (!next.is_out) return;
   if (prev?.is_out) return;
   const visible = (next.confidence?.full ?? 0) + (next.confidence?.partial ?? 0);
   const label = next.class_name === "full" ? "Full" : "Partial";
-  await ntfyPublish(env, {
-    title: "🏔️ THE MOUNTAIN IS OUT",
-    message: `Mount Rainier is visible (${label}). Confidence: ${(visible * 100).toFixed(1)}%`,
-    priority: 5,
-    tags: ["mountain_snow_capped"],
+  await notifyMountainVisibility(env, {
+    visible: true,
+    confidence: visible,
+    label,
+    imageUrl: next.webcam_url,
+    timestamp: next.timestamp_utc,
   });
 }
 
 async function sendNotificationTest(env: Env): Promise<void> {
-  await ntfyPublish(env, {
-    title: "🏔️ Worker notification test",
-    message: "Test from mountain-inference Worker. If you see this on your phone, the Worker → ntfy.sh path is healthy.",
-    priority: 3,
-    tags: ["test_tube"],
-  });
+  await notifyDiscordTest(env);
 }
 
 async function appendHistory(env: Env, record: HistoryRecord): Promise<void> {
