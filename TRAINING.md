@@ -1,0 +1,36 @@
+# LoRA training convention
+
+This project shares a *harness* convention for LoRA training with the qwenbot/RAG
+projects (`tommybot`). It is **not** a shared training library — the two trainers
+have nothing in common at the tensor level (this repo trains a ConvNeXt-Tiny image
+classifier with PyTorch + PEFT; tommybot trains a Qwen3-4B text LLM with MLX). What's
+shared is the operational contract, so "kick off a LoRA training run" feels the same
+across projects. The canonical write-up lives in tommybot's `TRAINING.md`; this is
+the mountain-specific instance.
+
+## The contract, here
+
+1. **Training is an in-repo CLI command,** with a `just train` convenience recipe
+   (`uv tool install rust-just` if you don't have `just`):
+
+   ```sh
+   just train data/labels.yaml 5
+   # → uv run training batch --labels data/labels.yaml --epochs 5
+   ```
+
+   (the `training` console script → `train.scheduler:app`.)
+
+2. **Training runs locally on the most capable machine, *not* under Nomad.** It
+   prefetches the dataset from R2 and runs gradient descent on MPS — RAM-heavy and
+   worth watching the per-epoch val loss for — so run it interactively on the best
+   hardware available, not pinned to the weak always-on node. **Nomad here is
+   reserved for the always-on collector service** (`collect.hcl`) plus the one-shot
+   *capture* jobs (`once.hcl`, `capture_out.hcl`); training is a different shape and
+   does not belong there.
+
+3. **Adapters/checkpoints land where serving auto-discovers them:** the best
+   checkpoint (by val loss) is written to `train/checkpoints/` (via
+   `ConfigLoader.checkpoint_dir`) and uploaded to R2 for the inference container to
+   pull on cold start. See `CHECKPOINTS.md` for model history.
+
+4. **Weights and training data stay out of git** (see `.gitignore`).
